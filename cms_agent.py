@@ -55,8 +55,25 @@ OWNER_MAP: Dict[str, str] = {
 }
 
 MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o")
-WATCH_PATH = Path(os.getenv("WATCH_PATH", "watch_state"))
-WATCH_PATH.mkdir(exist_ok=True, parents=True)
+
+# Use /tmp in serverless environments, local directory otherwise
+if os.getenv('VERCEL') or os.getenv('AWS_LAMBDA_FUNCTION_NAME'):
+    WATCH_PATH = Path("/tmp/watch_state")
+else:
+    WATCH_PATH = Path(os.getenv("WATCH_PATH", "watch_state"))
+
+# Try to create watch directory, but don't fail if we can't
+try:
+    WATCH_PATH.mkdir(exist_ok=True, parents=True)
+except (OSError, PermissionError) as e:
+    console.print(f"[yellow]Warning: Could not create watch directory {WATCH_PATH}: {e}")
+    # Use a temporary directory as fallback
+    import tempfile
+    WATCH_PATH = Path(tempfile.gettempdir()) / "cms_watch_state"
+    try:
+        WATCH_PATH.mkdir(exist_ok=True, parents=True)
+    except Exception:
+        console.print("[yellow]Warning: Watch directory unavailable, state persistence disabled")
 
 console = Console()
 

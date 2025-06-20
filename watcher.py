@@ -76,8 +76,24 @@ OWNER_KEYWORDS = {
 }
 
 # Directory where previous article snapshots are stored.
-STATE_DIR = Path(".policy_watcher_state")
-STATE_DIR.mkdir(exist_ok=True)
+# Use /tmp in serverless environments, local directory otherwise
+if os.getenv('VERCEL') or os.getenv('AWS_LAMBDA_FUNCTION_NAME'):
+    STATE_DIR = Path("/tmp/policy_watcher_state")
+else:
+    STATE_DIR = Path(".policy_watcher_state")
+
+# Try to create state directory, but don't fail if we can't
+try:
+    STATE_DIR.mkdir(exist_ok=True, parents=True)
+except (OSError, PermissionError) as e:
+    logger.warning(f"Could not create state directory {STATE_DIR}: {e}")
+    # Use a temporary directory as fallback
+    import tempfile
+    STATE_DIR = Path(tempfile.gettempdir()) / "policy_watcher_state"
+    try:
+        STATE_DIR.mkdir(exist_ok=True, parents=True)
+    except Exception:
+        logger.warning("State directory unavailable, state persistence disabled")
 
 # Logger setup
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")

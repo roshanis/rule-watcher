@@ -140,8 +140,25 @@ HEALTHCARE_AGENCIES = [
 # Configuration
 API_BASE = "https://www.federalregister.gov/api/v1/documents.json"
 SUGGESTED_SEARCHES_URL = "https://www.federalregister.gov/api/v1/suggested_searches"
-CACHE_DIR = Path("cache")
-CACHE_DIR.mkdir(exist_ok=True)
+
+# Use /tmp for cache in serverless environments, local cache otherwise
+if os.getenv('VERCEL') or os.getenv('AWS_LAMBDA_FUNCTION_NAME'):
+    CACHE_DIR = Path("/tmp/cache")
+else:
+    CACHE_DIR = Path("cache")
+
+# Try to create cache directory, but don't fail if we can't
+try:
+    CACHE_DIR.mkdir(exist_ok=True, parents=True)
+except (OSError, PermissionError) as e:
+    logging.warning(f"Could not create cache directory {CACHE_DIR}: {e}")
+    # Use a temporary directory as fallback
+    import tempfile
+    CACHE_DIR = Path(tempfile.gettempdir()) / "cms_cache"
+    try:
+        CACHE_DIR.mkdir(exist_ok=True, parents=True)
+    except Exception:
+        logging.warning("Cache directory unavailable, caching disabled")
 
 # In-memory storage for votes and comments (for serverless deployment)
 # Note: This will reset on each cold start, but works for demo purposes
