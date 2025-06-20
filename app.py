@@ -58,15 +58,32 @@ limiter = Limiter(
     default_limits=["200 per day", "50 per hour"]
 )
 
+# Healthcare-related agencies from Federal Register API schemas
+HEALTHCARE_AGENCIES = [
+    "centers-for-medicare-medicaid-services",  # CMS - primary target
+    "centers-for-disease-control-and-prevention",  # CDC
+    "food-and-drug-administration",  # FDA
+    "health-and-human-services-department",  # HHS
+    "national-institutes-of-health",  # NIH
+    "agency-for-healthcare-research-and-quality",  # AHRQ
+    "health-resources-and-services-administration",  # HRSA
+    "indian-health-service",  # IHS
+    "substance-abuse-and-mental-health-services-administration",  # SAMHSA
+    "medicare-payment-advisory-commission",  # MedPAC
+    "reagan-udall-foundation-for-the-food-and-drug-administration",  # Reagan-Udall Foundation
+]
+
 # Configuration
 API_BASE = "https://www.federalregister.gov/api/v1/documents.json"
 SUGGESTED_SEARCHES_URL = "https://www.federalregister.gov/api/v1/suggested_searches"
 CACHE_DIR = Path("cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
-# Simple in-memory storage (use database in production)
-votes = {}  # document_id -> vote_count
-comments = {}  # document_id -> [comment_list]
+# In-memory storage for votes and comments (for serverless deployment)
+# Note: This will reset on each cold start, but works for demo purposes
+# For production, you'd want to use a database like Redis or PostgreSQL
+votes = {}
+comments = {}
 
 # Input validation patterns
 DOCUMENT_ID_PATTERN = re.compile(r'^[0-9]{4}-[0-9]{5}$')
@@ -105,30 +122,48 @@ def inject_csrf_token():
     """Inject CSRF token into templates."""
     return dict(csrf_token=generate_csrf_token())
 
-def fetch_fr_documents(query="medicare medicaid", per_page=30):
-    """Fetch documents from Federal Register API."""
-    if not validate_query(query):
-        return []
-        
-    params = {
-        "conditions[term]": query,
-        "conditions[agency_ids]": 54,  # CMS
-        "order": "newest",
-        "per_page": min(per_page, 50),  # Limit to prevent abuse
-        "page": 1,
-    }
-    
+def fetch_documents(query="medicare medicaid healthcare", per_page=20):
+    """Fetch documents from Federal Register API with healthcare agency filters"""
     try:
-        resp = requests.get(
-            API_BASE, 
-            params=params, 
-            headers={"User-Agent": "CMS-Rule-Watcher/1.0"}, 
-            timeout=30
-        )
-        resp.raise_for_status()
-        return resp.json().get("results", [])
+        params = {
+            "conditions[term]": query,
+            "order": "newest",
+            "per_page": min(per_page, 50),  # Limit to prevent abuse
+            "page": 1
+        }
+        
+        # Add multiple healthcare agency filters
+        for i, agency in enumerate(HEALTHCARE_AGENCIES):
+            params[f"conditions[agencies][{i}]"] = agency
+        
+        response = requests.get(API_BASE, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        documents = []
+        
+        for doc in data.get("results", []):
+            # Handle None values safely
+            abstract = doc.get("abstract") or ""
+            title = doc.get("title") or "Untitled Document"
+            agency_names = doc.get("agency_names") or []
+            
+            documents.append({
+                "id": doc.get("document_number", ""),
+                "title": title,
+                "summary": abstract[:500] + "..." if len(abstract) > 500 else abstract,
+                "url": doc.get("html_url", ""),
+                "date": doc.get("publication_date", ""),
+                "agency": ", ".join(agency_names) if agency_names else "Unknown Agency",
+                "type": doc.get("type", ""),
+                "votes": 0,  # Default vote count
+                "comments": []  # Default empty comments
+            })
+        
+        return documents
     except Exception as e:
-        app.logger.error(f"API Error: {e}")
+        app.logger.error(f"Error fetching documents: {e}")
+        print(f"Error fetching documents: {e}")
         return []
 
 def fetch_suggested_searches():
@@ -178,32 +213,32 @@ def format_time_ago(date_str):
 @limiter.limit("30 per minute")
 def index():
     """Main page - HackerNews style list of rules."""
-    documents = fetch_fr_documents()
+    documents = fetch_documents()
+    
+    # Log document count for debugging
+    if not documents:
+        app.logger.info("No healthcare documents found for the current query")
+        documents = []  # Ensure documents is always a list
     
     # Add vote counts and format dates
     for doc in documents:
-        doc_id = doc.get("document_number", "")
-        doc["vote_count"] = votes.get(doc_id, 0)
+        doc_id = doc.get("id", "")
+        doc["votes"] = votes.get(doc_id, 0)  # Use "votes" to match template
         doc["comment_count"] = len(comments.get(doc_id, []))
-        doc["time_ago"] = format_time_ago(doc.get("publication_date", ""))
+        doc["time_ago"] = format_time_ago(doc.get("date", ""))
         
-        # Extract agency names for display
-        agencies = doc.get("agency_names", [])
-        doc["agency_display"] = ", ".join(agencies[:2])  # Show first 2 agencies
+        # Agency is already formatted in fetch_documents
+        # No need to process further
         
-        # Truncate title if too long
-        title = doc.get("title", "")
-        if len(title) > 120:
-            doc["title_display"] = title[:120] + "..."
-        else:
-            doc["title_display"] = title
+        # Title is already set in fetch_documents
+        # No need to process further
     
     # Sort by vote count (HN style) with recent bias
     def score_doc(doc):
-        votes_score = doc["vote_count"]
+        votes_score = doc.get("votes", 0)
         recency_bonus = 0
         try:
-            date = datetime.strptime(doc.get("publication_date", ""), "%Y-%m-%d")
+            date = datetime.strptime(doc.get("date", ""), "%Y-%m-%d")
             days_old = (datetime.now() - date).days
             if days_old < 7:
                 recency_bonus = (7 - days_old) * 2
@@ -299,7 +334,7 @@ def api_documents():
     if not validate_query(query):
         return jsonify({"error": "Invalid query"}), 400
         
-    documents = fetch_fr_documents(query)
+    documents = fetch_documents(query)
     return jsonify(documents)
 
 @app.route('/searches')
@@ -326,9 +361,9 @@ def internal_error(e):
     return render_template('500.html'), 500
 
 if __name__ == '__main__':
-    # Use environment variables for configuration
-    debug = os.getenv('FLASK_ENV') != 'production'
-    port = int(os.getenv('PORT', 8080))
-    host = os.getenv('HOST', '127.0.0.1')  # More secure default
-    
-    app.run(debug=debug, host=host, port=port) 
+    # For local development
+    app.run(host='0.0.0.0', port=8080, debug=False)
+else:
+    # For production/serverless deployment
+    # The app object will be imported by the WSGI server
+    pass 

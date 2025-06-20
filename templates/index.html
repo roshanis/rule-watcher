@@ -30,50 +30,56 @@
         </div>
 
         <main class="content">
+            {% if documents %}
             {% for doc in documents %}
-            <div class="item" data-id="{{ doc.document_number }}">
+            <div class="item" data-id="{{ doc.id }}">
                 <div class="vote-section">
-                    <button class="vote-btn" onclick="vote('{{ doc.document_number }}')">▲</button>
-                    <span class="vote-count">{{ doc.vote_count }}</span>
+                    <button class="vote-btn" onclick="vote('{{ doc.id }}')">▲</button>
+                    <span class="vote-count">{{ doc.votes }}</span>
                 </div>
                 
                 <div class="item-content">
                     <div class="item-title">
-                        <a href="{{ doc.html_url }}" target="_blank" class="title-link">
-                            {{ doc.title_display }}
+                        <a href="{{ doc.url }}" target="_blank" class="title-link">
+                            {{ doc.title }}
                         </a>
                         <span class="domain">(federalregister.gov)</span>
                     </div>
                     
                     <div class="item-meta">
-                        <span class="points">{{ doc.vote_count }} points</span>
+                        <span class="points">{{ doc.votes }} points</span>
                         <span class="separator">|</span>
                         <span class="time">{{ doc.time_ago }}</span>
                         <span class="separator">|</span>
-                        <span class="agency">{{ doc.agency_display }}</span>
+                        <span class="agency">{{ doc.agency }}</span>
                         {% if doc.comment_count > 0 %}
                         <span class="separator">|</span>
                         <span class="comments">{{ doc.comment_count }} comments</span>
                         {% endif %}
                         <span class="separator">|</span>
-                        <a href="#" onclick="toggleComments('{{ doc.document_number }}')" class="comment-link">discuss</a>
+                        <a href="#" onclick="toggleComments('{{ doc.id }}')" class="comment-link">discuss</a>
                     </div>
 
-                    <div id="comments-{{ doc.document_number }}" class="comments-section hidden">
+                    <div id="comments-{{ doc.id }}" class="comments-section hidden">
                         <div class="comment-form">
-                            <textarea id="comment-text-{{ doc.document_number }}" placeholder="Add your thoughts on this rule..."></textarea>
+                            <textarea id="comment-text-{{ doc.id }}" placeholder="Add your thoughts on this rule..."></textarea>
                             <div class="comment-form-footer">
-                                <input type="text" id="comment-author-{{ doc.document_number }}" placeholder="Your name" style="width: 150px;">
-                                <button onclick="addComment('{{ doc.document_number }}')">Add Comment</button>
+                                <input type="text" id="comment-author-{{ doc.id }}" placeholder="Your name" style="width: 150px;">
+                                <button onclick="addComment('{{ doc.id }}')">Add Comment</button>
                             </div>
                         </div>
-                        <div id="comment-list-{{ doc.document_number }}" class="comment-list">
+                        <div id="comment-list-{{ doc.id }}" class="comment-list">
                             <!-- Comments will be loaded here -->
                         </div>
                     </div>
                 </div>
             </div>
             {% endfor %}
+            {% else %}
+            <div class="no-documents">
+                <p>No healthcare documents found. Please try again later.</p>
+            </div>
+            {% endif %}
         </main>
 
         <footer class="footer">

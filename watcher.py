@@ -20,6 +20,44 @@ from rich.table import Table
 # Configuration
 # -----------------------------
 
+# Healthcare-related agencies from Federal Register API schemas
+HEALTHCARE_AGENCIES = [
+    "centers-for-medicare-medicaid-services",  # CMS - primary target
+    "centers-for-disease-control-and-prevention",  # CDC
+    "food-and-drug-administration",  # FDA
+    "health-and-human-services-department",  # HHS
+    "national-institutes-of-health",  # NIH
+    "agency-for-healthcare-research-and-quality",  # AHRQ
+    "health-resources-and-services-administration",  # HRSA
+    "indian-health-service",  # IHS
+    "substance-abuse-and-mental-health-services-administration",  # SAMHSA
+    "medicare-payment-advisory-commission",  # MedPAC
+    "reagan-udall-foundation-for-the-food-and-drug-administration",  # Reagan-Udall Foundation
+]
+
+# Healthcare-related topics from Federal Register API schemas
+HEALTHCARE_TOPICS = [
+    "medicare", "medicaid", "health-care", "medical-devices", "hospitals", 
+    "health-insurance", "health-maintenance-organizations-hmo", "health-professions",
+    "health-records", "health-statistics", "heart-diseases", "hospice-care",
+    "medical-dental-schools", "medical-assistance-program", "medical-research",
+    "mental-health-programs", "nursing-homes", "prescription-drugs", "public-health",
+    "health-facilities", "emergency-medical-services", "communicable-diseases",
+    "immunization", "dental-health", "maternal-child-health", "drug-abuse",
+    "drug-testing", "drug-traffic-control", "drugs", "biologics", "blood-diseases",
+    "cancer", "genetic-diseases", "hiv-aids", "kidney-diseases", "lung-diseases",
+    "tuberculosis", "venereal-diseases", "over-counter-drugs", "peer-review-organizations-pro"
+]
+
+# Healthcare-related suggested searches from Federal Register API schemas  
+HEALTHCARE_SUGGESTED_SEARCHES = [
+    "accountable-care-organizations", "clinical-laboratory-improvement-program",
+    "continuation-of-health-benefits-cobra-", "electronic-health-information-technology",
+    "health-and-human-services-grants-funding", "health-care-reform",
+    "meaningful-use-of-electronic-health-records", "medical-devices",
+    "medical-privacy-hipaa-", "medicare-medicaid-and-schip-payments"
+]
+
 # Feeds that frequently publish Medicare payment rules / notices.
 # Users can extend or override with a local feeds.json file.
 # RSS feeds disabled – focusing on Federal Register API instead.
@@ -47,11 +85,11 @@ logger = logging.getLogger("policy_watcher")
 console = Console()
 
 API_BASE = "https://www.federalregister.gov/api/v1/documents.json"
-SEARCH_QUERY = "medicare medicaid payor payer"
+SEARCH_QUERY = "medicare medicaid healthcare health insurance medical hospital physician"
 CMS_AGENCY_ID = 54  # Centers for Medicare & Medicaid Services
 
 SUGGESTED_SEARCHES_URL = "https://www.federalregister.gov/api/v1/suggested_searches"
-SUGGESTED_KEYWORDS = ["medicare", "medicaid"]
+SUGGESTED_KEYWORDS = HEALTHCARE_SUGGESTED_SEARCHES
 
 
 # -----------------------------
@@ -60,6 +98,8 @@ SUGGESTED_KEYWORDS = ["medicare", "medicaid"]
 
 def clean_html(html: str) -> str:
     """Return plain-text from HTML."""
+    if html is None:
+        return ""
     soup = BeautifulSoup(html, "html.parser")
     return soup.get_text(" ", strip=True)
 
@@ -132,15 +172,22 @@ def fetch_all_entries(feed_urls: List[str]):
             yield entry
 
 
-def fetch_fr_search_entries(query: str = SEARCH_QUERY, agency_id: int = CMS_AGENCY_ID, per_page: int = 20):
-    """Yield document dicts from Federal Register API matching query/agency."""
+def fetch_fr_search_entries(query: str = SEARCH_QUERY, agencies: List[str] = None, per_page: int = 20):
+    """Yield document dicts from Federal Register API matching query/agencies."""
+    if agencies is None:
+        agencies = HEALTHCARE_AGENCIES
+    
     params = {
         "conditions[term]": query,
-        "conditions[agency_ids]": agency_id,
         "order": "newest",
         "per_page": per_page,
         "page": 1,
     }
+    
+    # Add multiple agency filters
+    for i, agency in enumerate(agencies):
+        params[f"conditions[agencies][{i}]"] = agency
+    
     try:
         resp = requests.get(API_BASE, params=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
         resp.raise_for_status()
@@ -156,9 +203,43 @@ def fetch_fr_search_entries(query: str = SEARCH_QUERY, agency_id: int = CMS_AGEN
         logger.error("Federal Register API error: %s", exc)
 
 
+def fetch_fr_topic_entries(topics: List[str] = None, per_page: int = 20):
+    """Yield document dicts from Federal Register API matching healthcare topics."""
+    if topics is None:
+        topics = HEALTHCARE_TOPICS[:10]  # Use first 10 topics to avoid too many params
+    
+    params = {
+        "order": "newest",
+        "per_page": per_page,
+        "page": 1,
+    }
+    
+    # Add multiple topic filters
+    for i, topic in enumerate(topics):
+        params[f"conditions[topics][{i}]"] = topic
+    
+    try:
+        resp = requests.get(API_BASE, params=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
+        resp.raise_for_status()
+        for doc in resp.json().get("results", []):
+            yield {
+                "id": doc.get("document_number"),
+                "title": doc.get("title"),
+                "published": doc.get("publication_date"),
+                "link": doc.get("html_url"),
+                "summary": doc.get("abstract", ""),
+            }
+    except Exception as exc:
+        logger.error("Federal Register API topic search error: %s", exc)
+
+
 def build_fr_params(search_conditions: Dict) -> Dict:
     """Convert a suggested_searches search_conditions dict into FR API params."""
-    params = {"order": "newest", "per_page": 20, "page": 1}
+    params = {
+        "order": "newest", 
+        "per_page": 20, 
+        "page": 1
+    }
     for key, value in search_conditions.items():
         if key == "term":
             params["conditions[term]"] = value
@@ -175,8 +256,11 @@ def build_fr_params(search_conditions: Dict) -> Dict:
     return params
 
 
-def fetch_fr_suggested_entries(keywords=SUGGESTED_KEYWORDS):
+def fetch_fr_suggested_entries(keywords=None):
     """Yield FR documents for suggested searches whose title matches given keywords."""
+    if keywords is None:
+        keywords = HEALTHCARE_SUGGESTED_SEARCHES
+    
     try:
         js = requests.get(SUGGESTED_SEARCHES_URL, timeout=30).json()
         # Flatten suggestions
@@ -217,9 +301,17 @@ def process_entry(entry: Dict):
             published_dt = date_parser.parse(published)
         except Exception:
             published_dt = datetime.now(timezone.utc)
-    summary_html = entry.get("summary", "")
-    content_html = entry.get("content", [{"value": summary_html}])[0]["value"]
-    text = clean_html(content_html)
+    
+    summary_html = entry.get("summary", "") or ""
+    content_html = entry.get("content", [{"value": summary_html}])
+    
+    # Handle different content structures safely
+    if isinstance(content_html, list) and content_html:
+        content_value = content_html[0].get("value", "") if isinstance(content_html[0], dict) else str(content_html[0])
+    else:
+        content_value = str(content_html) if content_html else summary_html
+    
+    text = clean_html(content_value)
 
     owner = detect_owner(title)
 
@@ -291,14 +383,24 @@ def main():
 
     # RSS processing skipped (list empty)
 
-    # NEW: Federal Register API processing
+    # Healthcare agency search
+    logger.info("Fetching documents from healthcare agencies...")
     for entry in fetch_fr_search_entries():
         try:
             process_entry(entry)
         except Exception as exc:
-            logger.exception("Error processing FR entry: %s", exc)
+            logger.exception("Error processing FR agency entry: %s", exc)
 
-    # NEW: Suggested searches processing
+    # Healthcare topic search
+    logger.info("Fetching documents by healthcare topics...")
+    for entry in fetch_fr_topic_entries():
+        try:
+            process_entry(entry)
+        except Exception as exc:
+            logger.exception("Error processing FR topic entry: %s", exc)
+
+    # Healthcare suggested searches
+    logger.info("Fetching documents from healthcare suggested searches...")
     for entry in fetch_fr_suggested_entries():
         try:
             process_entry(entry)

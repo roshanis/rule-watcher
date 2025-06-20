@@ -63,6 +63,24 @@ console = Console()
 
 load_dotenv()  # load variables from .env if present
 
+# Healthcare-related agencies from Federal Register API schemas
+HEALTHCARE_AGENCIES = [
+    "centers-for-medicare-medicaid-services",  # CMS - primary target
+    "centers-for-disease-control-and-prevention",  # CDC
+    "food-and-drug-administration",  # FDA
+    "health-and-human-services-department",  # HHS
+    "national-institutes-of-health",  # NIH
+    "agency-for-healthcare-research-and-quality",  # AHRQ
+    "health-resources-and-services-administration",  # HRSA
+    "indian-health-service",  # IHS
+    "substance-abuse-and-mental-health-services-administration",  # SAMHSA
+    "medicare-payment-advisory-commission",  # MedPAC
+    "reagan-udall-foundation-for-the-food-and-drug-administration",  # Reagan-Udall Foundation
+]
+
+# Configuration
+FEDERAL_REGISTER_API = "https://www.federalregister.gov/api/v1/documents.json"
+
 # --------------- Helper functions ---------------
 
 def slugify(text: str) -> str:
@@ -151,6 +169,9 @@ def process_feed(feed_key: str, feed_url: str) -> List[Dict]:
     for entry in parsed.entries:
         entry_id = entry.get("id") or entry.get("link")
         published = dtparser.parse(entry.get("published", datetime.utcnow().isoformat()))
+        
+
+            
         link = entry.get("link")
 
         try:
@@ -264,17 +285,109 @@ def daemon(interval: int):
         time.sleep(interval)
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python cms_agent.py [run|daemon] [interval_sec]")
-        sys.exit(1)
+def fetch_federal_register_documents():
+    """Fetch recent documents from Federal Register API for healthcare agencies."""
+    try:
+        params = {
+            "conditions[term]": "medicare medicaid healthcare health insurance medical hospital physician",
+            "order": "newest",
+            "per_page": 50,
+            "page": 1
+        }
+        
+        # Add multiple healthcare agency filters
+        for i, agency in enumerate(HEALTHCARE_AGENCIES):
+            params[f"conditions[agencies][{i}]"] = agency
+        
+        response = requests.get(
+            FEDERAL_REGISTER_API,
+            params=params,
+            headers={"User-Agent": "CMS-Agent/1.0"},
+            timeout=30
+        )
+        response.raise_for_status()
+        
+        data = response.json()
+        documents = []
+        
+        for doc in data.get("results", []):
+            documents.append({
+                "id": doc.get("document_number"),
+                "title": doc.get("title"),
+                "summary": doc.get("abstract", ""),
+                "url": doc.get("html_url"),
+                "published": doc.get("publication_date"),
+                "agencies": doc.get("agency_names", []),
+                "type": doc.get("type")
+            })
+        
+        return documents
+        
+    except Exception as e:
+        print(f"Error fetching Federal Register documents: {e}")
+        return []
 
-    cmd = sys.argv[1]
-    if cmd == "run":
-        run_once()
-    elif cmd == "daemon":
-        interval = int(sys.argv[2]) if len(sys.argv) > 2 else 3600
-        daemon(interval)
-    else:
-        print(f"Unknown command: {cmd}")
-        sys.exit(1) 
+
+if __name__ == "__main__":
+    print("🏥 CMS Rulemaking Watcher Agent")
+    print("=" * 50)
+    
+    # Fetch documents from Federal Register API
+    print("📡 Fetching healthcare documents from Federal Register API...")
+    documents = fetch_federal_register_documents()
+    
+    if not documents:
+        print("❌ No documents found or API error")
+        exit(1)
+    
+    print(f"📄 Found {len(documents)} healthcare documents")
+    
+    # Process each document
+    for doc in documents:
+        print(f"\n🔍 Processing: {doc['title'][:80]}...")
+        
+        # Check if document is relevant to our rule types
+        title_lower = doc['title'].lower()
+        summary_lower = doc['summary'].lower()
+        
+        relevant_keywords = [
+            'ipps', 'inpatient prospective payment',
+            'opps', 'outpatient prospective payment', 
+            'physician fee schedule', 'pfs',
+            'medicare advantage', 'part d'
+        ]
+        
+        is_relevant = any(keyword in title_lower or keyword in summary_lower 
+                         for keyword in relevant_keywords)
+        
+        if is_relevant:
+            # Determine owner based on content
+            owner = determine_owner(doc['title'], doc['summary'])
+            
+            # Check for changes (simplified for demo)
+            doc_id = doc['id']
+            current_content = f"{doc['title']}\n{doc['summary']}"
+            
+            if doc_id in document_cache:
+                previous_content = document_cache[doc_id]
+                if current_content != previous_content:
+                    print(f"📝 Document updated: {doc['title'][:60]}...")
+                    print(f"👤 Owner: {owner}")
+                    
+                    # Generate summary using OpenAI
+                    summary = generate_summary(previous_content, current_content)
+                    print(f"📋 Summary: {summary}")
+                    
+                    # Update cache
+                    document_cache[doc_id] = current_content
+                else:
+                    print(f"✅ No changes detected")
+            else:
+                print(f"🆕 New document: {doc['title'][:60]}...")
+                print(f"👤 Owner: {owner}")
+                document_cache[doc_id] = current_content
+        else:
+            print(f"⏭️  Skipping non-relevant document")
+    
+    print(f"\n✅ Processed {len(documents)} documents")
+    print("🔄 Run this script periodically to monitor for changes") 

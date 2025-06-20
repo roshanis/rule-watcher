@@ -166,76 +166,62 @@ curl -I "http://localhost:8080/"
 - Add docstrings to all functions
 - Validate all user inputs
 
-## 🚀 Production Deployment
+## 🚀 Deployment
 
-### Environment Setup
+### Local Development
 
-```bash
-# Production environment variables
-FLASK_ENV=production
-SECRET_KEY=your-production-secret-key
-HOST=0.0.0.0
-PORT=80
+1. **Clone and Setup**:
+   ```bash
+   git clone https://github.com/roshanis/rule-watcher.git
+   cd rule-watcher
+   python -m venv .venv
+   source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+   pip install -r requirements.txt
+   ```
 
-# Enable HTTPS security features
-FORCE_HTTPS=true
-```
+2. **Run Application**:
+   ```bash
+   python app.py
+   ```
+   Visit: http://localhost:8080
 
-### Security Checklist
+### Vercel Deployment (Recommended)
 
-- [ ] Set strong `SECRET_KEY`
-- [ ] Enable HTTPS (`FORCE_HTTPS=true`)
-- [ ] Use production WSGI server (Gunicorn, uWSGI)
-- [ ] Set up reverse proxy (Nginx)
-- [ ] Configure firewall rules
-- [ ] Set up monitoring and logging
-- [ ] Regular security updates
+**Quick Deploy:**
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/roshanis/rule-watcher)
+
+**Manual Deployment:**
+1. **Install Vercel CLI**:
+   ```bash
+   npm install -g vercel
+   ```
+
+2. **Deploy**:
+   ```bash
+   vercel login
+   vercel
+   ```
+
+3. **Configure** (follow prompts):
+   - Project name: `cms-rule-watcher`
+   - Directory: `./`
+   - Framework: `Other`
+
+**📋 See [deploy.md](deploy.md) for detailed deployment instructions**
 
 ### Docker Deployment
 
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-COPY . .
-EXPOSE 8080
-
-CMD ["python", "app.py"]
+```bash
+docker-compose up -d
 ```
+Visit: http://localhost:8080
 
-### Kubernetes Deployment
+### Environment Variables
 
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: cms-rule-watcher
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: cms-rule-watcher
-  template:
-    metadata:
-      labels:
-        app: cms-rule-watcher
-    spec:
-      containers:
-      - name: app
-        image: cms-rule-watcher:latest
-        ports:
-        - containerPort: 8080
-        env:
-        - name: FLASK_ENV
-          value: "production"
-        - name: SECRET_KEY
-          valueFrom:
-            secretKeyRef:
-              name: app-secrets
-              key: secret-key
+Create `.env` file (optional):
+```bash
+OPENAI_API_KEY=your_openai_api_key_here  # For AI summaries
+FLASK_ENV=production                      # For production
 ```
 
 ## 📊 Monitoring
