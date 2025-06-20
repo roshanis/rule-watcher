@@ -1,45 +1,47 @@
 import sys
 import os
-import traceback
 
 # Add the parent directory to the path so we can import app
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Set environment for production
+os.environ.setdefault('FLASK_ENV', 'production')
+
 try:
-    # Set environment variables for production
-    os.environ.setdefault('FLASK_ENV', 'production')
-    
-    # Import the Flask app with error handling
+    # Try to import the main Flask app
     from app import app
     
-    # Ensure the app is configured for serverless
+    # Configure for serverless
     app.config['ENV'] = 'production'
     
-    # For Vercel, we need to expose the app as a handler function
-    def handler(request, response):
-        return app(request, response)
-    
-    # Also expose app directly for backwards compatibility
+    # Expose for Vercel
     application = app
-    
-except Exception as e:
-    # Create a minimal error app if main app fails to import
+
+except Exception:
+    # If import fails, create a simple diagnostic app
+    import traceback
     from flask import Flask, jsonify
     
-    error_app = Flask(__name__)
+    # Capture the error details
+    error_details = traceback.format_exc()
     
-    @error_app.route('/')
-    @error_app.route('/<path:path>')
-    def error_handler(path=''):
+    # Create minimal Flask app for error reporting
+    app = Flask(__name__)
+    
+    @app.route('/')
+    @app.route('/<path:path>')
+    def show_error(path=''):
         return jsonify({
-            'error': 'Application failed to initialize',
-            'details': str(e),
-            'traceback': traceback.format_exc()
+            'status': 'error',
+            'message': 'Failed to import main application',
+            'traceback': error_details,
+            'path_info': sys.path,
+            'working_directory': os.getcwd(),
+            'environment': dict(os.environ)
         }), 500
     
-    app = error_app
-    application = error_app
+    application = app
 
-# Vercel expects the app to be available as 'app'
+# Vercel entry point
 if __name__ == "__main__":
     app.run(debug=False) 

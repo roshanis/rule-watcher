@@ -14,28 +14,51 @@ import os
 import re
 import secrets
 import logging
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List
-import sys
 
-import requests
-from flask import Flask, render_template, request, jsonify, redirect, url_for, session
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from dotenv import load_dotenv
-import bleach
+# Basic imports first
+try:
+    import requests
+except ImportError as e:
+    logging.error(f"Failed to import requests: {e}")
+    raise
 
-# Try to import Flask-Talisman, but handle if it's not available
+try:
+    from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+except ImportError as e:
+    logging.error(f"Failed to import Flask components: {e}")
+    raise
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    logging.warning("python-dotenv not available, skipping .env file loading")
+
+try:
+    import bleach
+except ImportError as e:
+    logging.error(f"Failed to import bleach: {e}")
+    raise
+
+# Optional imports with fallbacks
+try:
+    from flask_limiter import Limiter
+    from flask_limiter.util import get_remote_address
+    LIMITER_AVAILABLE = True
+except ImportError:
+    LIMITER_AVAILABLE = False
+    logging.warning("Flask-Limiter not available, rate limiting disabled")
+
 try:
     from flask_talisman import Talisman
     TALISMAN_AVAILABLE = True
 except ImportError:
     TALISMAN_AVAILABLE = False
     logging.warning("Flask-Talisman not available, security headers will be limited")
-
-# Load environment variables
-load_dotenv()
 
 app = Flask(__name__)
 
@@ -44,17 +67,10 @@ if not app.debug:
     logging.basicConfig(level=logging.INFO)
 
 # Security Configuration
-app.secret_key = os.getenv('SECRET_KEY')
-if not app.secret_key:
-    if os.getenv('FLASK_ENV') == 'production':
-        # In serverless, generate a consistent key based on environment
-        app.secret_key = secrets.token_hex(32)
-        logging.warning("Generated temporary SECRET_KEY for serverless deployment")
-    else:
-        app.secret_key = secrets.token_hex(32)
+app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(32))
+is_production = os.getenv('FLASK_ENV') == 'production'
 
 # Session configuration - adjust for serverless
-is_production = os.getenv('FLASK_ENV') == 'production'
 app.config['SESSION_COOKIE_SECURE'] = is_production
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
@@ -63,44 +79,48 @@ app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024  # 1MB max request size
 
 # Security Headers - only if Talisman is available
 if TALISMAN_AVAILABLE:
-    Talisman(app, 
-        force_https=is_production,
-        strict_transport_security=is_production,
-        strict_transport_security_max_age=31536000 if is_production else None,
-        content_security_policy={
-            'default-src': "'self'",
-            'script-src': "'self'",
-            'style-src': "'self'",
-            'connect-src': "'self'",
-            'img-src': "'self' data:",
-            'font-src': "'self'",
-            'frame-ancestors': "'none'",
-        },
-        referrer_policy='strict-origin-when-cross-origin',
-        feature_policy={
-            'geolocation': "'none'",
-            'camera': "'none'",
-            'microphone': "'none'",
-        }
-    )
+    try:
+        Talisman(app, 
+            force_https=is_production,
+            strict_transport_security=is_production,
+            strict_transport_security_max_age=31536000 if is_production else None,
+            content_security_policy={
+                'default-src': "'self'",
+                'script-src': "'self'",
+                'style-src': "'self'",
+                'connect-src': "'self'",
+                'img-src': "'self' data:",
+                'font-src': "'self'",
+                'frame-ancestors': "'none'",
+            },
+            referrer_policy='strict-origin-when-cross-origin',
+            feature_policy={
+                'geolocation': "'none'",
+                'camera': "'none'",
+                'microphone': "'none'",
+            }
+        )
+    except Exception as e:
+        logging.error(f"Failed to configure Talisman: {e}")
 
 # Rate Limiting - use memory storage for serverless (will reset on cold starts)
-try:
-    limiter = Limiter(
-        app=app,
-        key_func=get_remote_address,
-        default_limits=["200 per day", "50 per hour"],
-        storage_uri="memory://"  # Use memory storage for serverless
-    )
-except Exception as e:
-    logging.error(f"Failed to initialize rate limiter: {e}")
-    # Create a no-op limiter if initialization fails
-    class NoOpLimiter:
-        def limit(self, *args, **kwargs):
-            def decorator(f):
-                return f
-            return decorator
-    limiter = NoOpLimiter()
+if LIMITER_AVAILABLE:
+    try:
+        limiter = Limiter(
+            app=app,
+            key_func=get_remote_address,
+            default_limits=["200 per day", "50 per hour"],
+            storage_uri="memory://"  # Use memory storage for serverless
+        )
+    except Exception as e:
+        logging.error(f"Failed to initialize rate limiter: {e}")
+        # Create a no-op limiter if initialization fails
+        class NoOpLimiter:
+            def limit(self, *args, **kwargs):
+                def decorator(f):
+                    return f
+                return decorator
+        limiter = NoOpLimiter()
 
 # Healthcare-related agencies from Federal Register API schemas
 HEALTHCARE_AGENCIES = [
