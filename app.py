@@ -31,23 +31,39 @@ load_dotenv()
 app = Flask(__name__)
 
 # Security Configuration
-app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(32))
-app.config['SESSION_COOKIE_SECURE'] = os.getenv('FLASK_ENV') == 'production'
+app.secret_key = os.getenv('SECRET_KEY')
+if not app.secret_key:
+    if os.getenv('FLASK_ENV') == 'production':
+        raise ValueError("SECRET_KEY must be set in production")
+    else:
+        app.secret_key = secrets.token_hex(32)
+
+app.config['SESSION_COOKIE_SECURE'] = True  # Always require HTTPS for cookies
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
+app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024  # 1MB max request size
 
 # Security Headers
 Talisman(app, 
-    force_https=False,  # Set to True in production with HTTPS
-    strict_transport_security=False,  # Enable in production
+    force_https=os.getenv('FLASK_ENV') == 'production',
+    strict_transport_security=True,
+    strict_transport_security_max_age=31536000,  # 1 year
     content_security_policy={
         'default-src': "'self'",
-        'script-src': "'self' 'unsafe-inline'",  # Needed for inline JS
-        'style-src': "'self' 'unsafe-inline'",   # Needed for inline CSS
+        'script-src': "'self'",  # Removed unsafe-inline
+        'style-src': "'self'",   # Removed unsafe-inline  
         'connect-src': "'self'",
         'img-src': "'self' data:",
         'font-src': "'self'",
+        'frame-ancestors': "'none'",
+    },
+    content_security_policy_nonce_in=['script-src', 'style-src'],
+    referrer_policy='strict-origin-when-cross-origin',
+    feature_policy={
+        'geolocation': "'none'",
+        'camera': "'none'",
+        'microphone': "'none'",
     }
 )
 
@@ -86,20 +102,26 @@ votes = {}
 comments = {}
 
 # Input validation patterns
-DOCUMENT_ID_PATTERN = re.compile(r'^[0-9]{4}-[0-9]{5}$')
+DOCUMENT_ID_PATTERN = re.compile(r'^[0-9]{4}-[0-9]{5}$|^[A-Za-z0-9\-]+$')  # Support both formats
 QUERY_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-_\.]+$')
 
 def validate_document_id(doc_id: str) -> bool:
     """Validate document ID format."""
-    return bool(DOCUMENT_ID_PATTERN.match(doc_id)) if doc_id else False
+    if not doc_id or len(doc_id) > 50:
+        return False
+    return bool(DOCUMENT_ID_PATTERN.match(doc_id))
 
 def validate_query(query: str) -> bool:
     """Validate search query."""
-    return bool(QUERY_PATTERN.match(query)) and len(query) <= 100 if query else False
+    if not query:
+        return False
+    return bool(QUERY_PATTERN.match(query)) and 3 <= len(query) <= 100
 
 def sanitize_input(text: str) -> str:
     """Sanitize user input to prevent XSS."""
-    return bleach.clean(text, tags=[], attributes={}, strip=True)
+    if not text:
+        return ""
+    return bleach.clean(text, tags=[], attributes={}, strip=True)[:1000]  # Limit length
 
 def generate_csrf_token():
     """Generate CSRF token for forms."""
@@ -361,8 +383,12 @@ def internal_error(e):
     return render_template('500.html'), 500
 
 if __name__ == '__main__':
-    # For local development
-    app.run(host='0.0.0.0', port=8080, debug=False)
+    # For local development - use secure defaults
+    debug_mode = os.getenv('FLASK_ENV') == 'development'
+    host = '127.0.0.1' if debug_mode else '0.0.0.0'  # Secure default for development
+    port = int(os.getenv('PORT', 8080))
+    
+    app.run(host=host, port=port, debug=debug_mode)
 else:
     # For production/serverless deployment
     # The app object will be imported by the WSGI server

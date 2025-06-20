@@ -144,4 +144,27 @@ logs/
 
 # Temporary files
 tmp/
-temp/ 
+temp/
+
+# Security - Additional sensitive files
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+.secrets/
+secrets.json
+config.json
+.env.local
+.env.production
+.env.staging
+
+# Backup files
+*.bak
+*.backup
+*.old
+*~
+
+# Large documentation files
+*.html
+docs/*.html 

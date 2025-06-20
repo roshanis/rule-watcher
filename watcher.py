@@ -100,8 +100,12 @@ def clean_html(html: str) -> str:
     """Return plain-text from HTML."""
     if html is None:
         return ""
-    soup = BeautifulSoup(html, "html.parser")
-    return soup.get_text(" ", strip=True)
+    try:
+        soup = BeautifulSoup(html, "html.parser")
+        return soup.get_text(" ", strip=True)
+    except Exception as e:
+        logger.warning(f"Error parsing HTML: {e}")
+        return str(html) if html else ""
 
 
 def extract_numbers(text: str) -> List[str]:
@@ -138,14 +142,34 @@ def detect_owner(title: str) -> str:
 
 
 def save_snapshot(item_id: str, content: str):
-    path = STATE_DIR / f"{item_id}.txt"
-    path.write_text(content)
+    """Save content snapshot atomically."""
+    if not item_id:
+        logger.warning("Empty item_id provided to save_snapshot")
+        return
+    
+    try:
+        path = STATE_DIR / f"{item_id}.txt"
+        temp_path = path.with_suffix('.tmp')
+        
+        # Write to temporary file first, then rename (atomic operation)
+        temp_path.write_text(content, encoding='utf-8')
+        temp_path.replace(path)
+    except Exception as e:
+        logger.error(f"Error saving snapshot for {item_id}: {e}")
 
 
 def load_snapshot(item_id: str) -> str:
-    path = STATE_DIR / f"{item_id}.txt"
-    if path.exists():
-        return path.read_text()
+    """Load content snapshot with error handling."""
+    if not item_id:
+        return ""
+    
+    try:
+        path = STATE_DIR / f"{item_id}.txt"
+        if path.exists():
+            return path.read_text(encoding='utf-8')
+    except Exception as e:
+        logger.error(f"Error loading snapshot for {item_id}: {e}")
+    
     return ""
 
 

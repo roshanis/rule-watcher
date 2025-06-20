@@ -21,7 +21,6 @@ import difflib
 import hashlib
 import json
 import os
-import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -62,6 +61,11 @@ WATCH_PATH.mkdir(exist_ok=True, parents=True)
 console = Console()
 
 load_dotenv()  # load variables from .env if present
+
+# Validate OpenAI API key
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+if OPENAI_API_KEY and not OPENAI_API_KEY.startswith("sk-"):
+    console.print("[red]Warning: OPENAI_API_KEY does not appear to be valid")
 
 # Healthcare-related agencies from Federal Register API schemas
 HEALTHCARE_AGENCIES = [

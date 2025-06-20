@@ -8,11 +8,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
-    <script>
-        // Make CSRF token available globally
-        window.csrfToken = "{{ csrf_token }}";
-    </script>
-    
     <div class="container">
         <header class="header">
             <div class="logo">
