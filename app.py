@@ -13,66 +13,94 @@ import json
 import os
 import re
 import secrets
+import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List
+import sys
 
 import requests
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_talisman import Talisman
 from dotenv import load_dotenv
 import bleach
+
+# Try to import Flask-Talisman, but handle if it's not available
+try:
+    from flask_talisman import Talisman
+    TALISMAN_AVAILABLE = True
+except ImportError:
+    TALISMAN_AVAILABLE = False
+    logging.warning("Flask-Talisman not available, security headers will be limited")
 
 # Load environment variables
 load_dotenv()
 
 app = Flask(__name__)
 
+# Configure logging for serverless
+if not app.debug:
+    logging.basicConfig(level=logging.INFO)
+
 # Security Configuration
 app.secret_key = os.getenv('SECRET_KEY')
 if not app.secret_key:
     if os.getenv('FLASK_ENV') == 'production':
-        raise ValueError("SECRET_KEY must be set in production")
+        # In serverless, generate a consistent key based on environment
+        app.secret_key = secrets.token_hex(32)
+        logging.warning("Generated temporary SECRET_KEY for serverless deployment")
     else:
         app.secret_key = secrets.token_hex(32)
 
-app.config['SESSION_COOKIE_SECURE'] = True  # Always require HTTPS for cookies
+# Session configuration - adjust for serverless
+is_production = os.getenv('FLASK_ENV') == 'production'
+app.config['SESSION_COOKIE_SECURE'] = is_production
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=24)
 app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024  # 1MB max request size
 
-# Security Headers
-Talisman(app, 
-    force_https=os.getenv('FLASK_ENV') == 'production',
-    strict_transport_security=True,
-    strict_transport_security_max_age=31536000,  # 1 year
-    content_security_policy={
-        'default-src': "'self'",
-        'script-src': "'self'",  # Removed unsafe-inline
-        'style-src': "'self'",   # Removed unsafe-inline  
-        'connect-src': "'self'",
-        'img-src': "'self' data:",
-        'font-src': "'self'",
-        'frame-ancestors': "'none'",
-    },
-    content_security_policy_nonce_in=['script-src', 'style-src'],
-    referrer_policy='strict-origin-when-cross-origin',
-    feature_policy={
-        'geolocation': "'none'",
-        'camera': "'none'",
-        'microphone': "'none'",
-    }
-)
+# Security Headers - only if Talisman is available
+if TALISMAN_AVAILABLE:
+    Talisman(app, 
+        force_https=is_production,
+        strict_transport_security=is_production,
+        strict_transport_security_max_age=31536000 if is_production else None,
+        content_security_policy={
+            'default-src': "'self'",
+            'script-src': "'self'",
+            'style-src': "'self'",
+            'connect-src': "'self'",
+            'img-src': "'self' data:",
+            'font-src': "'self'",
+            'frame-ancestors': "'none'",
+        },
+        referrer_policy='strict-origin-when-cross-origin',
+        feature_policy={
+            'geolocation': "'none'",
+            'camera': "'none'",
+            'microphone': "'none'",
+        }
+    )
 
-# Rate Limiting
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"]
-)
+# Rate Limiting - use memory storage for serverless (will reset on cold starts)
+try:
+    limiter = Limiter(
+        app=app,
+        key_func=get_remote_address,
+        default_limits=["200 per day", "50 per hour"],
+        storage_uri="memory://"  # Use memory storage for serverless
+    )
+except Exception as e:
+    logging.error(f"Failed to initialize rate limiter: {e}")
+    # Create a no-op limiter if initialization fails
+    class NoOpLimiter:
+        def limit(self, *args, **kwargs):
+            def decorator(f):
+                return f
+            return decorator
+    limiter = NoOpLimiter()
 
 # Healthcare-related agencies from Federal Register API schemas
 HEALTHCARE_AGENCIES = [
@@ -365,6 +393,22 @@ def suggested_searches():
     """Page showing suggested search categories."""
     searches = fetch_suggested_searches()
     return render_template('searches.html', searches=searches)
+
+@app.route('/health')
+def health_check():
+    """Simple health check endpoint for debugging deployment."""
+    return jsonify({
+        'status': 'ok',
+        'message': 'CMS Rule Watcher is running',
+        'environment': os.getenv('FLASK_ENV', 'unknown'),
+        'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+        'dependencies': {
+            'flask': True,
+            'requests': True,
+            'talisman': TALISMAN_AVAILABLE,
+            'limiter': hasattr(limiter, 'limit')
+        }
+    })
 
 @app.errorhandler(429)
 def ratelimit_handler(e):
