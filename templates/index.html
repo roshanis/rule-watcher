@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>CMS Rule Watcher</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <script>
+        // Make CSRF token available globally
+        window.csrfToken = "{{ csrf_token }}";
+    </script>
+    
+    <div class="container">
+        <header class="header">
+            <div class="logo">
+                <a href="/">CMS Rule Watcher</a>
+            </div>
+            <nav class="nav">
+                <a href="/">new</a> |
+                <a href="/searches">searches</a> |
+                <a href="#" onclick="toggleSearch()">search</a>
+            </nav>
+        </header>
+
+        <div id="search-bar" class="search-bar hidden">
+            <input type="text" id="search-input" placeholder="Search rules..." onkeypress="handleSearch(event)">
+        </div>
+
+        <main class="content">
+            {% for doc in documents %}
+            <div class="item" data-id="{{ doc.document_number }}">
+                <div class="vote-section">
+                    <button class="vote-btn" onclick="vote('{{ doc.document_number }}')">▲</button>
+                    <span class="vote-count">{{ doc.vote_count }}</span>
+                </div>
+                
+                <div class="item-content">
+                    <div class="item-title">
+                        <a href="{{ doc.html_url }}" target="_blank" class="title-link">
+                            {{ doc.title_display }}
+                        </a>
+                        <span class="domain">(federalregister.gov)</span>
+                    </div>
+                    
+                    <div class="item-meta">
+                        <span class="points">{{ doc.vote_count }} points</span>
+                        <span class="separator">|</span>
+                        <span class="time">{{ doc.time_ago }}</span>
+                        <span class="separator">|</span>
+                        <span class="agency">{{ doc.agency_display }}</span>
+                        {% if doc.comment_count > 0 %}
+                        <span class="separator">|</span>
+                        <span class="comments">{{ doc.comment_count }} comments</span>
+                        {% endif %}
+                        <span class="separator">|</span>
+                        <a href="#" onclick="toggleComments('{{ doc.document_number }}')" class="comment-link">discuss</a>
+                    </div>
+
+                    <div id="comments-{{ doc.document_number }}" class="comments-section hidden">
+                        <div class="comment-form">
+                            <textarea id="comment-text-{{ doc.document_number }}" placeholder="Add your thoughts on this rule..."></textarea>
+                            <div class="comment-form-footer">
+                                <input type="text" id="comment-author-{{ doc.document_number }}" placeholder="Your name" style="width: 150px;">
+                                <button onclick="addComment('{{ doc.document_number }}')">Add Comment</button>
+                            </div>
+                        </div>
+                        <div id="comment-list-{{ doc.document_number }}" class="comment-list">
+                            <!-- Comments will be loaded here -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </main>
+
+        <footer class="footer">
+            <p>CMS Rule Watcher - Stay updated on Medicare & Medicaid policy changes</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html> 
