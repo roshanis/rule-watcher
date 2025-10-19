@@ -14,17 +14,17 @@ try:
     # Configure for serverless
     app.config['ENV'] = 'production'
     
-    # Set the correct template and static folder paths for Vercel
-    # Templates are in api/templates in Vercel deployment
+    # Ensure template/static folders point to the project root (deployed under /var/task)
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    app.template_folder = os.path.join(script_dir, 'templates')
-    app.static_folder = os.path.join(script_dir, 'static')
+    project_root = os.path.dirname(script_dir)
 
-    # Debug: print template folder path
-    print(f"DEBUG: Template folder set to: {app.template_folder}")
-    print(f"DEBUG: Template folder exists: {os.path.exists(app.template_folder)}")
-    if os.path.exists(app.template_folder):
-        print(f"DEBUG: Templates in folder: {os.listdir(app.template_folder)}")
+    template_dir = os.path.join(project_root, 'templates')
+    static_dir = os.path.join(project_root, 'static')
+
+    if os.path.exists(template_dir):
+        app.template_folder = template_dir
+    if os.path.exists(static_dir):
+        app.static_folder = static_dir
     
     # Expose for Vercel
     application = app
