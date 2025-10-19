@@ -18,6 +18,12 @@ try:
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     app.template_folder = os.path.join(project_root, 'templates')
     app.static_folder = os.path.join(project_root, 'static')
+
+    # Debug: print template folder path
+    print(f"DEBUG: Template folder set to: {app.template_folder}")
+    print(f"DEBUG: Template folder exists: {os.path.exists(app.template_folder)}")
+    if os.path.exists(app.template_folder):
+        print(f"DEBUG: Templates in folder: {os.listdir(app.template_folder)}")
     
     # Expose for Vercel
     application = app
