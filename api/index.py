@@ -14,6 +14,11 @@ try:
     # Configure for serverless
     app.config['ENV'] = 'production'
     
+    # Set the correct template and static folder paths for Vercel
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    app.template_folder = os.path.join(project_root, 'templates')
+    app.static_folder = os.path.join(project_root, 'static')
+    
     # Expose for Vercel
     application = app
 
