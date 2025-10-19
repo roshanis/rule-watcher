@@ -19,6 +19,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List
 
+import ai_storage
+
 # Basic imports first
 try:
     import requests
@@ -52,6 +54,16 @@ try:
 except ImportError:
     LIMITER_AVAILABLE = False
     logging.warning("Flask-Limiter not available, rate limiting disabled")
+
+
+class NoOpLimiter:
+    """Fallback limiter when Flask-Limiter is unavailable."""
+
+    def limit(self, *args, **kwargs):
+        def decorator(f):
+            return f
+
+        return decorator
 
 try:
     from flask_talisman import Talisman
@@ -114,13 +126,9 @@ if LIMITER_AVAILABLE:
         )
     except Exception as e:
         logging.error(f"Failed to initialize rate limiter: {e}")
-        # Create a no-op limiter if initialization fails
-        class NoOpLimiter:
-            def limit(self, *args, **kwargs):
-                def decorator(f):
-                    return f
-                return decorator
         limiter = NoOpLimiter()
+else:
+    limiter = NoOpLimiter()
 
 # Healthcare-related agencies from Federal Register API schemas
 HEALTHCARE_AGENCIES = [
@@ -164,6 +172,23 @@ except (OSError, PermissionError) as e:
 # Note: This will reset on each cold start, but works for demo purposes
 # For production, you'd want to use a database like Redis or PostgreSQL
 votes = {}
+
+
+def _ensure_vote_record(doc_id: str) -> Dict[str, int]:
+    if doc_id not in votes:
+        votes[doc_id] = {"up": 0, "down": 0}
+    else:
+        votes[doc_id].setdefault("up", 0)
+        votes[doc_id].setdefault("down", 0)
+    return votes[doc_id]
+
+
+def _coerce_session_votes(raw) -> Dict[str, str]:
+    if isinstance(raw, dict):
+        return {str(k): v for k, v in raw.items() if v in {"up", "down"}}
+    if isinstance(raw, list):  # legacy list of upvotes only
+        return {str(item): "up" for item in raw}
+    return {}
 comments = {}
 
 # Input validation patterns
@@ -243,7 +268,9 @@ def fetch_documents(query="medicare medicaid healthcare", per_page=20):
                 "date": doc.get("publication_date", ""),
                 "agency": ", ".join(agency_names) if agency_names else "Unknown Agency",
                 "type": doc.get("type", ""),
-                "votes": 0,  # Default vote count
+                "up_votes": 0,
+                "down_votes": 0,
+                "score": 0,
                 "comments": []  # Default empty comments
             })
         
@@ -278,9 +305,15 @@ def fetch_suggested_searches():
 def format_time_ago(date_str):
     """Convert date string to 'X days ago' format."""
     try:
-        date = datetime.strptime(date_str, "%Y-%m-%d")
+        if not date_str:
+            return ""
+        cleaned = date_str.replace("Z", "")
+        if "T" in cleaned:
+            date = datetime.fromisoformat(cleaned)
+        else:
+            date = datetime.strptime(cleaned, "%Y-%m-%d")
         delta = datetime.now() - date
-        
+
         if delta.days == 0:
             return "today"
         elif delta.days == 1:
@@ -301,28 +334,33 @@ def format_time_ago(date_str):
 def index():
     """Main page - HackerNews style list of rules."""
     documents = fetch_documents()
-    
+    session_votes = _coerce_session_votes(session.get('voted_documents'))
+
     # Log document count for debugging
     if not documents:
         app.logger.info("No healthcare documents found for the current query")
         documents = []  # Ensure documents is always a list
-    
+
     # Add vote counts and format dates
     for doc in documents:
         doc_id = doc.get("id", "")
-        doc["votes"] = votes.get(doc_id, 0)  # Use "votes" to match template
+        record = _ensure_vote_record(doc_id) if doc_id else {"up": 0, "down": 0}
+        doc["up_votes"] = record["up"]
+        doc["down_votes"] = record["down"]
+        doc["score"] = record["up"] - record["down"]
         doc["comment_count"] = len(comments.get(doc_id, []))
         doc["time_ago"] = format_time_ago(doc.get("date", ""))
-        
+        doc["user_vote"] = session_votes.get(doc_id)
+
         # Agency is already formatted in fetch_documents
         # No need to process further
-        
+
         # Title is already set in fetch_documents
         # No need to process further
     
     # Sort by vote count (HN style) with recent bias
     def score_doc(doc):
-        votes_score = doc.get("votes", 0)
+        votes_score = doc.get("score", 0)
         recency_bonus = 0
         try:
             date = datetime.strptime(doc.get("date", ""), "%Y-%m-%d")
@@ -347,23 +385,44 @@ def vote():
     data = request.get_json()
     csrf_token = data.get('csrf_token')
     doc_id = data.get('document_id')
-    
+    direction = (data.get('direction') or 'up').lower()
+
     if not validate_csrf_token(csrf_token):
         return jsonify({"success": False, "error": "Invalid CSRF token"}), 403
         
     if not validate_document_id(doc_id):
         return jsonify({"success": False, "error": "Invalid document ID"}), 400
-    
+
+    if direction not in {'up', 'down'}:
+        return jsonify({"success": False, "error": "Invalid vote direction"}), 400
+
     # Simple rate limiting per document per session
-    voted_docs = session.get('voted_documents', set())
-    if doc_id in voted_docs:
-        return jsonify({"success": False, "error": "Already voted"}), 400
-    
-    votes[doc_id] = votes.get(doc_id, 0) + 1
-    voted_docs.add(doc_id)
-    session['voted_documents'] = voted_docs
-    
-    return jsonify({"success": True, "vote_count": votes[doc_id]})
+    voted_docs = _coerce_session_votes(session.get('voted_documents'))
+    record = _ensure_vote_record(doc_id)
+
+    previous_direction = voted_docs.get(doc_id)
+    removed = False
+
+    if previous_direction == direction:
+        record[direction] = max(record.get(direction, 0) - 1, 0)
+        voted_docs.pop(doc_id, None)
+        removed = True
+    else:
+        if previous_direction:
+            record[previous_direction] = max(record.get(previous_direction, 0) - 1, 0)
+        record[direction] = record.get(direction, 0) + 1
+        voted_docs[doc_id] = direction
+
+    session['voted_documents'] = dict(voted_docs)
+
+    return jsonify({
+        "success": True,
+        "up_votes": record.get('up', 0),
+        "down_votes": record.get('down', 0),
+        "score": record.get('up', 0) - record.get('down', 0),
+        "direction": None if removed else direction,
+        "previous_direction": previous_direction,
+    })
 
 @app.route('/document/<document_id>')
 def document_detail(document_id):
@@ -422,6 +481,15 @@ def api_documents():
         return jsonify({"error": "Invalid query"}), 400
         
     documents = fetch_documents(query)
+    session_votes = _coerce_session_votes(session.get('voted_documents'))
+    for doc in documents:
+        doc_id = doc.get("id", "")
+        record = _ensure_vote_record(doc_id) if doc_id else {"up": 0, "down": 0}
+        doc["up_votes"] = record["up"]
+        doc["down_votes"] = record["down"]
+        doc["score"] = record["up"] - record["down"]
+        doc["user_vote"] = session_votes.get(doc_id)
+        doc["comment_count"] = len(comments.get(doc_id, []))
     return jsonify(documents)
 
 @app.route('/searches')
@@ -430,6 +498,30 @@ def suggested_searches():
     """Page showing suggested search categories."""
     searches = fetch_suggested_searches()
     return render_template('searches.html', searches=searches)
+
+
+@app.route('/ai')
+@limiter.limit("20 per minute")
+def ai_updates():
+    """Render latest AI-focused news items."""
+    ai_storage.purge_expired()
+    items = ai_storage.get_recent_items()
+    for item in items:
+        stamp = item.get('published_at') or item.get('fetched_at')
+        item['time_ago'] = format_time_ago(stamp)
+    return render_template('ai.html', items=items)
+
+
+@app.route('/api/ai')
+@limiter.limit("20 per minute")
+def api_ai_items():
+    """Return AI updates as JSON."""
+    ai_storage.purge_expired()
+    items = ai_storage.get_recent_items()
+    for item in items:
+        stamp = item.get('published_at') or item.get('fetched_at')
+        item['time_ago'] = format_time_ago(stamp)
+    return jsonify(items)
 
 @app.route('/health')
 def health_check():

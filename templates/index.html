@@ -16,6 +16,7 @@
             <nav class="nav">
                 <a href="/">new</a> |
                 <a href="/searches">searches</a> |
+                <a href="/ai">ai</a> |
                 <a href="#" onclick="toggleSearch()">search</a>
             </nav>
         </header>
@@ -27,10 +28,11 @@
         <main class="content">
             {% if documents %}
             {% for doc in documents %}
-            <div class="item" data-id="{{ doc.id }}">
+            <div class="item" data-id="{{ doc.id }}"{% if doc.user_vote %} data-vote="{{ doc.user_vote }}"{% endif %}>
                 <div class="vote-section">
-                    <button class="vote-btn" onclick="vote('{{ doc.id }}')">▲</button>
-                    <span class="vote-count">{{ doc.votes }}</span>
+                    <button class="vote-btn upvote{% if doc.user_vote == 'up' %} voted{% endif %}" onclick="vote('{{ doc.id }}', 'up')">▲</button>
+                    <span class="vote-score">{{ doc.score }}</span>
+                    <button class="vote-btn downvote{% if doc.user_vote == 'down' %} voted{% endif %}" onclick="vote('{{ doc.id }}', 'down')">▼</button>
                 </div>
                 
                 <div class="item-content">
@@ -42,7 +44,12 @@
                     </div>
                     
                     <div class="item-meta">
-                        <span class="points">{{ doc.votes }} points</span>
+                        <span class="points">{{ doc.score }} points</span>
+                        <span class="separator">|</span>
+                        <span class="vote-breakdown">
+                            <span class="up-count">{{ doc.up_votes }}</span>▲ /
+                            <span class="down-count">{{ doc.down_votes }}</span>▼
+                        </span>
                         <span class="separator">|</span>
                         <span class="time">{{ doc.time_ago }}</span>
                         <span class="separator">|</span>

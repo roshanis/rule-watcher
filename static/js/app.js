@@ -95,22 +95,38 @@ function createDocumentElement(doc, index) {
     const div = document.createElement('div');
     div.className = 'item';
     div.setAttribute('data-id', escapeHtml(doc.id || doc.document_number || ''));
-    
+    if (doc.user_vote) {
+        div.setAttribute('data-vote', doc.user_vote);
+    }
+
     // Create vote section
     const voteSection = document.createElement('div');
     voteSection.className = 'vote-section';
-    
-    const voteBtn = document.createElement('button');
-    voteBtn.className = 'vote-btn';
-    voteBtn.textContent = '▲';
-    voteBtn.onclick = () => vote(doc.id || doc.document_number);
-    
-    const voteCount = document.createElement('span');
-    voteCount.className = 'vote-count';
-    voteCount.textContent = doc.votes || doc.vote_count || 0;
-    
-    voteSection.appendChild(voteBtn);
-    voteSection.appendChild(voteCount);
+
+    const upBtn = document.createElement('button');
+    upBtn.className = 'vote-btn upvote';
+    upBtn.textContent = '▲';
+    upBtn.onclick = () => vote(doc.id || doc.document_number, 'up');
+    if (doc.user_vote === 'up') {
+        upBtn.classList.add('voted');
+    }
+
+    const voteScore = document.createElement('span');
+    voteScore.className = 'vote-score';
+    const initialScore = doc.score ?? doc.votes ?? doc.vote_count ?? 0;
+    voteScore.textContent = initialScore;
+
+    const downBtn = document.createElement('button');
+    downBtn.className = 'vote-btn downvote';
+    downBtn.textContent = '▼';
+    downBtn.onclick = () => vote(doc.id || doc.document_number, 'down');
+    if (doc.user_vote === 'down') {
+        downBtn.classList.add('voted');
+    }
+
+    voteSection.appendChild(upBtn);
+    voteSection.appendChild(voteScore);
+    voteSection.appendChild(downBtn);
     
     // Create content section
     const itemContent = document.createElement('div');
@@ -140,8 +156,38 @@ function createDocumentElement(doc, index) {
     
     const points = document.createElement('span');
     points.className = 'points';
-    points.textContent = `${doc.votes || doc.vote_count || 0} points`;
-    
+    points.textContent = `${initialScore} points`;
+
+    const sepBreakdown = document.createElement('span');
+    sepBreakdown.className = 'separator';
+    sepBreakdown.textContent = '|';
+
+    const breakdown = document.createElement('span');
+    breakdown.className = 'vote-breakdown';
+
+    const upCount = document.createElement('span');
+    upCount.className = 'up-count';
+    upCount.textContent = doc.up_votes ?? doc.votes ?? 0;
+
+    const upArrow = document.createElement('span');
+    upArrow.textContent = '▲';
+
+    const slash = document.createElement('span');
+    slash.textContent = ' / ';
+
+    const downCount = document.createElement('span');
+    downCount.className = 'down-count';
+    downCount.textContent = doc.down_votes ?? 0;
+
+    const downArrow = document.createElement('span');
+    downArrow.textContent = '▼';
+
+    breakdown.appendChild(upCount);
+    breakdown.appendChild(upArrow);
+    breakdown.appendChild(slash);
+    breakdown.appendChild(downCount);
+    breakdown.appendChild(downArrow);
+
     const sep1 = document.createElement('span');
     sep1.className = 'separator';
     sep1.textContent = '|';
@@ -173,6 +219,8 @@ function createDocumentElement(doc, index) {
     };
     
     metaDiv.appendChild(points);
+    metaDiv.appendChild(sepBreakdown);
+    metaDiv.appendChild(breakdown);
     metaDiv.appendChild(sep1);
     metaDiv.appendChild(time);
     metaDiv.appendChild(sep2);
@@ -253,23 +301,24 @@ function formatTimeAgo(dateStr) {
 }
 
 // Vote on a document
-async function vote(documentId) {
-    const voteBtn = document.querySelector(`[data-id="${documentId}"] .vote-btn`);
-    const voteCount = document.querySelector(`[data-id="${documentId}"] .vote-count`);
-    const pointsSpan = document.querySelector(`[data-id="${documentId}"] .points`);
-    
-    // Prevent double voting
-    if (voteBtn.classList.contains('voted')) {
+async function vote(documentId, direction = 'up') {
+    const item = document.querySelector(`[data-id="${documentId}"]`);
+    if (!item) {
         return;
     }
-    
-    // Optimistic UI update
-    voteBtn.classList.add('voted');
-    const currentCount = parseInt(voteCount.textContent) || 0;
-    const newCount = currentCount + 1;
-    voteCount.textContent = newCount;
-    pointsSpan.textContent = `${newCount} points`;
-    
+
+    const scoreSpan = item.querySelector('.vote-score');
+    const pointsSpan = item.querySelector('.points');
+    const upCountSpan = item.querySelector('.up-count');
+    const downCountSpan = item.querySelector('.down-count');
+    const upBtn = item.querySelector('.vote-btn.upvote');
+    const downBtn = item.querySelector('.vote-btn.downvote');
+
+    const currentDirection = item.getAttribute('data-vote');
+    if (currentDirection === direction) {
+        return;
+    }
+
     try {
         const response = await fetch('/vote', {
             method: 'POST',
@@ -278,33 +327,45 @@ async function vote(documentId) {
             },
             body: JSON.stringify({
                 document_id: documentId,
+                direction,
                 csrf_token: getCSRFToken()
             })
         });
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
-            // Update with server response
-            voteCount.textContent = result.vote_count;
-            pointsSpan.textContent = `${result.vote_count} points`;
-        } else {
-            // Revert on error
-            voteBtn.classList.remove('voted');
-            voteCount.textContent = currentCount;
-            pointsSpan.textContent = `${currentCount} points`;
-            
-            if (result.error) {
-                console.warn('Vote error:', result.error);
+            if (scoreSpan) {
+                scoreSpan.textContent = result.score;
             }
+            if (pointsSpan) {
+                pointsSpan.textContent = `${result.score} points`;
+            }
+            if (upCountSpan) {
+                upCountSpan.textContent = result.up_votes;
+            }
+            if (downCountSpan) {
+                downCountSpan.textContent = result.down_votes;
+            }
+
+            if (result.direction === 'up') {
+                item.setAttribute('data-vote', 'up');
+                if (upBtn) upBtn.classList.add('voted');
+                if (downBtn) downBtn.classList.remove('voted');
+            } else if (result.direction === 'down') {
+                item.setAttribute('data-vote', 'down');
+                if (downBtn) downBtn.classList.add('voted');
+                if (upBtn) upBtn.classList.remove('voted');
+            } else {
+                item.removeAttribute('data-vote');
+                if (upBtn) upBtn.classList.remove('voted');
+                if (downBtn) downBtn.classList.remove('voted');
+            }
+        } else if (result.error) {
+            console.warn('Vote error:', result.error);
         }
-        
     } catch (error) {
         console.error('Vote error:', error);
-        // Revert on error
-        voteBtn.classList.remove('voted');
-        voteCount.textContent = currentCount;
-        pointsSpan.textContent = `${currentCount} points`;
     }
 }
 

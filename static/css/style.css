@@ -83,7 +83,7 @@ body {
 }
 
 .vote-section {
-    width: 40px;
+    width: 45px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -108,6 +108,21 @@ body {
     font-size: 8pt;
     color: #828282;
     margin-top: 2px;
+}
+
+.vote-score {
+    font-size: 8pt;
+    color: #000;
+    margin: 2px 0;
+}
+
+.vote-btn.voted {
+    color: #ff6600;
+}
+
+.vote-breakdown {
+    color: #828282;
+    font-size: 8pt;
 }
 
 .item-content {

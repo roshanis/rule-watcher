@@ -35,6 +35,8 @@ from rich.console import Console
 from rich.table import Table
 from dotenv import load_dotenv
 
+console = Console()
+
 # --------------- CONFIG ---------------
 
 # Key CMS/Federal Register RSS feeds to monitor
@@ -54,7 +56,9 @@ OWNER_MAP: Dict[str, str] = {
     "star ratings": "ma_star_team@company.com",
 }
 
-MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-4o")
+MODEL_NAME = os.getenv("OPENAI_MODEL", "gpt-5")
+
+document_cache: Dict[str, str] = {}
 
 # Use /tmp in serverless environments, local directory otherwise
 if os.getenv('VERCEL') or os.getenv('AWS_LAMBDA_FUNCTION_NAME'):
@@ -74,8 +78,6 @@ except (OSError, PermissionError) as e:
         WATCH_PATH.mkdir(exist_ok=True, parents=True)
     except Exception:
         console.print("[yellow]Warning: Watch directory unavailable, state persistence disabled")
-
-console = Console()
 
 load_dotenv()  # load variables from .env if present
 
@@ -114,6 +116,15 @@ def slugify(text: str) -> str:
 
 def hash_text(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def determine_owner(title: str, summary: str) -> str:
+    """Return the first matching owner based on document content."""
+    content = f"{title}\n{summary}".lower()
+    for keyword, owner in OWNER_MAP.items():
+        if keyword in content:
+            return owner
+    return "(unassigned)"
 
 
 def fetch_html(url: str) -> str:
@@ -168,6 +179,16 @@ def summarize_with_openai(text: str, max_tokens: int = 300) -> str:
         temperature=0.3,
     )
     return resp.choices[0].message.content.strip()
+
+
+def generate_summary(previous_text: str, current_text: str) -> str:
+    """Summarize changes between two document revisions with a safe fallback."""
+    diff_source = diff_text(previous_text, current_text) if previous_text else current_text
+    try:
+        return summarize_with_openai(diff_source)
+    except Exception as exc:
+        console.print(f"[yellow]OpenAI summarization failed, returning truncated diff: {exc}")
+        return diff_source[:1000]
 
 
 # --------------- Owner routing ---------------

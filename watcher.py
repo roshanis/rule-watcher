@@ -75,6 +75,11 @@ OWNER_KEYWORDS = {
     "Part D": "MA/Part D Team",
 }
 
+# Logger setup
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("policy_watcher")
+console = Console()
+
 # Directory where previous article snapshots are stored.
 # Use /tmp in serverless environments, local directory otherwise
 if os.getenv('VERCEL') or os.getenv('AWS_LAMBDA_FUNCTION_NAME'):
@@ -94,11 +99,6 @@ except (OSError, PermissionError) as e:
         STATE_DIR.mkdir(exist_ok=True, parents=True)
     except Exception:
         logger.warning("State directory unavailable, state persistence disabled")
-
-# Logger setup
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("policy_watcher")
-console = Console()
 
 API_BASE = "https://www.federalregister.gov/api/v1/documents.json"
 SEARCH_QUERY = "medicare medicaid healthcare health insurance medical hospital physician"

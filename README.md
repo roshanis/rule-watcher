@@ -16,6 +16,7 @@ A **HackerNews-style web application** for monitoring CMS (Centers for Medicare 
 - **🔒 Security Hardened** - CSRF protection, rate limiting, input validation
 - **📱 Responsive Design** - Works on desktop and mobile
 - **⚡ Live Search** - Real-time search with URL persistence
+- **🧠 AI Insights Feed** - Daily curated AI news for Optum & UHG teams
 
 ## 🚀 Quick Start
 
@@ -56,8 +57,9 @@ FLASK_ENV=development  # Set to 'production' for production
 HOST=127.0.0.1
 PORT=8080
 
-# Optional: OpenAI API for advanced summarization
+# Optional: OpenAI API for advanced summarization (defaults to gpt-5)
 OPENAI_API_KEY=sk-your-openai-key-here
+# OPENAI_MODEL=gpt-5
 ```
 
 ### Run the Application
@@ -108,6 +110,8 @@ This application includes enterprise-grade security features:
 | `/vote` | POST | Upvote a document | 10/min |
 | `/comment` | POST | Add comment to document | 5/min |
 | `/searches` | GET | Suggested search categories | 10/min |
+| `/ai` | GET | Latest AI-focused articles | 20/min |
+| `/api/ai` | GET | JSON feed of AI articles | 20/min |
 
 ### Example API Usage
 
@@ -128,6 +132,9 @@ rule-watcher/
 ├── app.py                 # Main Flask application
 ├── watcher.py            # Command-line rule watcher
 ├── cms_agent.py          # OpenAI-powered agent version
+├── ai_ingest.py          # Daily AI news ingestion script
+├── ai_fetchers.py        # External AI news sources
+├── ai_storage.py         # Persistent storage for AI items
 ├── requirements.txt      # Python dependencies
 ├── .env                  # Environment configuration
 ├── templates/
@@ -151,6 +158,9 @@ rule-watcher/
 ```bash
 # Run the command-line watcher
 python watcher.py
+
+# Run the AI ingestion job (populates cache/ai_updates.db)
+python ai_ingest.py
 
 # Test API endpoints
 curl -s "http://localhost:8080/api/documents" | jq '.[0].title'
@@ -215,6 +225,16 @@ curl -I "http://localhost:8080/"
 docker-compose up -d
 ```
 Visit: http://localhost:8080
+
+### Scheduling Daily AI Ingestion
+
+Add a cron entry to run the AI ingest script once per day (example: 6am UTC):
+
+```
+0 6 * * * /usr/bin/env bash -lc 'cd /path/to/rule-watcher && source .venv/bin/activate && python ai_ingest.py >> logs/ai_ingest.log 2>&1'
+```
+
+The script collects Hacker News stories, keeps the freshest 100 results, and purges anything older than 14 days.
 
 ### Environment Variables
 
