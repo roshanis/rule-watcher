@@ -80,6 +80,13 @@ app = Flask(__name__)
 if not app.debug:
     logging.basicConfig(level=logging.INFO)
 
+# Set correct template and static folder paths for serverless environments like Vercel
+# This ensures templates are found regardless of working directory
+template_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
+static_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
+app.template_folder = template_folder
+app.static_folder = static_folder
+
 # Security Configuration
 app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(32))
 is_production = os.getenv('FLASK_ENV') == 'production'
