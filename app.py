@@ -81,11 +81,10 @@ if not app.debug:
     logging.basicConfig(level=logging.INFO)
 
 # Set correct template and static folder paths for serverless environments like Vercel
-# This ensures templates are found regardless of working directory
-template_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'templates')
-static_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'static')
-app.template_folder = template_folder
-app.static_folder = static_folder
+# In Vercel, templates are in api/templates relative to the function location
+script_dir = os.path.dirname(os.path.abspath(__file__))
+app.template_folder = os.path.join(script_dir, 'templates')
+app.static_folder = os.path.join(script_dir, 'static')
 
 # Security Configuration
 app.secret_key = os.getenv('SECRET_KEY', secrets.token_hex(32))

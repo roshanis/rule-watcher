@@ -15,9 +15,10 @@ try:
     app.config['ENV'] = 'production'
     
     # Set the correct template and static folder paths for Vercel
-    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    app.template_folder = os.path.join(project_root, 'templates')
-    app.static_folder = os.path.join(project_root, 'static')
+    # Templates are in api/templates in Vercel deployment
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    app.template_folder = os.path.join(script_dir, 'templates')
+    app.static_folder = os.path.join(script_dir, 'static')
 
     # Debug: print template folder path
     print(f"DEBUG: Template folder set to: {app.template_folder}")
