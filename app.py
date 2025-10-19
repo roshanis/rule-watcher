@@ -1,5 +1,5 @@
 """app.py
-HackerNews-style frontend for CMS Policy & Rulemaking Watcher.
+HackerNews-style frontend for Keywatch – CMS Policy & Rulemaking Watcher.
 
 Features:
 - Clean, minimal design like HN
@@ -17,9 +17,9 @@ import logging
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List
 
 import ai_storage
+import storage
 
 # Basic imports first
 try:
@@ -168,28 +168,13 @@ except (OSError, PermissionError) as e:
     except Exception:
         logging.warning("Cache directory unavailable, caching disabled")
 
-# In-memory storage for votes and comments (for serverless deployment)
-# Note: This will reset on each cold start, but works for demo purposes
-# For production, you'd want to use a database like Redis or PostgreSQL
-votes = {}
-
-
-def _ensure_vote_record(doc_id: str) -> Dict[str, int]:
-    if doc_id not in votes:
-        votes[doc_id] = {"up": 0, "down": 0}
-    else:
-        votes[doc_id].setdefault("up", 0)
-        votes[doc_id].setdefault("down", 0)
-    return votes[doc_id]
-
-
-def _coerce_session_votes(raw) -> Dict[str, str]:
-    if isinstance(raw, dict):
-        return {str(k): v for k, v in raw.items() if v in {"up", "down"}}
-    if isinstance(raw, list):  # legacy list of upvotes only
-        return {str(item): "up" for item in raw}
-    return {}
-comments = {}
+# Persistent vote token per session
+def get_vote_token() -> str:
+    token = session.get('vote_token')
+    if not token:
+        token = secrets.token_hex(16)
+        session['vote_token'] = token
+    return token
 
 # Input validation patterns
 DOCUMENT_ID_PATTERN = re.compile(r'^[0-9]{4}-[0-9]{5}$|^[A-Za-z0-9\-]+$')  # Support both formats
@@ -334,7 +319,7 @@ def format_time_ago(date_str):
 def index():
     """Main page - HackerNews style list of rules."""
     documents = fetch_documents()
-    session_votes = _coerce_session_votes(session.get('voted_documents'))
+    vote_token = get_vote_token()
 
     # Log document count for debugging
     if not documents:
@@ -344,13 +329,19 @@ def index():
     # Add vote counts and format dates
     for doc in documents:
         doc_id = doc.get("id", "")
-        record = _ensure_vote_record(doc_id) if doc_id else {"up": 0, "down": 0}
-        doc["up_votes"] = record["up"]
-        doc["down_votes"] = record["down"]
-        doc["score"] = record["up"] - record["down"]
-        doc["comment_count"] = len(comments.get(doc_id, []))
+        if doc_id:
+            record = storage.get_vote_record(doc_id, vote_token)
+            doc["up_votes"] = record["up"]
+            doc["down_votes"] = record["down"]
+            doc["score"] = record["score"]
+            doc["user_vote"] = record["user_vote"]
+            doc["comment_count"] = storage.get_comment_count(doc_id)
+        else:
+            doc["up_votes"] = doc["down_votes"] = 0
+            doc["score"] = 0
+            doc["user_vote"] = None
+            doc["comment_count"] = 0
         doc["time_ago"] = format_time_ago(doc.get("date", ""))
-        doc["user_vote"] = session_votes.get(doc_id)
 
         # Agency is already formatted in fetch_documents
         # No need to process further
@@ -396,32 +387,16 @@ def vote():
     if direction not in {'up', 'down'}:
         return jsonify({"success": False, "error": "Invalid vote direction"}), 400
 
-    # Simple rate limiting per document per session
-    voted_docs = _coerce_session_votes(session.get('voted_documents'))
-    record = _ensure_vote_record(doc_id)
-
-    previous_direction = voted_docs.get(doc_id)
-    removed = False
-
-    if previous_direction == direction:
-        record[direction] = max(record.get(direction, 0) - 1, 0)
-        voted_docs.pop(doc_id, None)
-        removed = True
-    else:
-        if previous_direction:
-            record[previous_direction] = max(record.get(previous_direction, 0) - 1, 0)
-        record[direction] = record.get(direction, 0) + 1
-        voted_docs[doc_id] = direction
-
-    session['voted_documents'] = dict(voted_docs)
+    vote_token = get_vote_token()
+    result = storage.toggle_vote(doc_id, vote_token, direction)
 
     return jsonify({
         "success": True,
-        "up_votes": record.get('up', 0),
-        "down_votes": record.get('down', 0),
-        "score": record.get('up', 0) - record.get('down', 0),
-        "direction": None if removed else direction,
-        "previous_direction": previous_direction,
+        "up_votes": result["up"],
+        "down_votes": result["down"],
+        "score": result["score"],
+        "direction": result["direction"],
+        "previous_direction": result["previous_direction"],
     })
 
 @app.route('/document/<document_id>')
@@ -459,18 +434,9 @@ def add_comment():
     if len(author) > 50:
         return jsonify({"success": False, "error": "Author name too long"}), 400
     
-    if doc_id not in comments:
-        comments[doc_id] = []
+    comment_count = storage.add_comment(doc_id, author, comment_text)
     
-    comment = {
-        "author": author,
-        "text": comment_text,
-        "timestamp": datetime.now().isoformat(),
-        "time_ago": "just now"
-    }
-    comments[doc_id].append(comment)
-    
-    return jsonify({"success": True, "comment_count": len(comments[doc_id])})
+    return jsonify({"success": True, "comment_count": comment_count})
 
 @app.route('/api/documents')
 @limiter.limit("20 per minute")
@@ -481,15 +447,21 @@ def api_documents():
         return jsonify({"error": "Invalid query"}), 400
         
     documents = fetch_documents(query)
-    session_votes = _coerce_session_votes(session.get('voted_documents'))
+    vote_token = get_vote_token()
     for doc in documents:
         doc_id = doc.get("id", "")
-        record = _ensure_vote_record(doc_id) if doc_id else {"up": 0, "down": 0}
-        doc["up_votes"] = record["up"]
-        doc["down_votes"] = record["down"]
-        doc["score"] = record["up"] - record["down"]
-        doc["user_vote"] = session_votes.get(doc_id)
-        doc["comment_count"] = len(comments.get(doc_id, []))
+        if doc_id:
+            record = storage.get_vote_record(doc_id, vote_token)
+            doc["up_votes"] = record["up"]
+            doc["down_votes"] = record["down"]
+            doc["score"] = record["score"]
+            doc["user_vote"] = record["user_vote"]
+            doc["comment_count"] = storage.get_comment_count(doc_id)
+        else:
+            doc["up_votes"] = doc["down_votes"] = 0
+            doc["score"] = 0
+            doc["user_vote"] = None
+            doc["comment_count"] = 0
     return jsonify(documents)
 
 @app.route('/searches')
@@ -528,7 +500,7 @@ def health_check():
     """Simple health check endpoint for debugging deployment."""
     return jsonify({
         'status': 'ok',
-        'message': 'CMS Rule Watcher is running',
+        'message': 'Keywatch is running',
         'environment': os.getenv('FLASK_ENV', 'unknown'),
         'python_version': f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
         'dependencies': {

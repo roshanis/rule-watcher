@@ -1,8 +1,8 @@
-# CMS Rule Watcher 🏥
+# Keywatch 🏥
 
 A **HackerNews-style web application** for monitoring CMS (Centers for Medicare & Medicaid Services) policy and rulemaking changes. Built for compliance teams to stay ahead of payment updates, quality-measure changes, and new guardrails.
 
-![CMS Rule Watcher](https://img.shields.io/badge/CMS-Rule%20Watcher-orange)
+![Keywatch](https://img.shields.io/badge/Keywatch-orange)
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![Flask](https://img.shields.io/badge/flask-2.3+-green.svg)
 ![Security](https://img.shields.io/badge/security-hardened-red.svg)
@@ -73,7 +73,7 @@ export FLASK_APP=app.py
 flask run --host=127.0.0.1 --port=8080
 ```
 
-Visit **http://localhost:8080** to see your CMS Rule Watcher!
+Visit **http://localhost:8080** to see Keywatch!
 
 ## 🔒 Security Features
 
@@ -135,6 +135,7 @@ rule-watcher/
 ├── ai_ingest.py          # Daily AI news ingestion script
 ├── ai_fetchers.py        # External AI news sources
 ├── ai_storage.py         # Persistent storage for AI items
+├── storage.py            # SQLite persistence for votes and comments
 ├── requirements.txt      # Python dependencies
 ├── .env                  # Environment configuration
 ├── templates/
@@ -243,6 +244,12 @@ Create `.env` file (optional):
 OPENAI_API_KEY=your_openai_api_key_here  # For AI summaries
 FLASK_ENV=production                      # For production
 ```
+
+### Data Storage
+
+- AI insight articles: `cache/ai_updates.db`
+- Vote & comment state: `cache/app_state.db` (entries older than 45 days are purged automatically)
+- Cron logs: `logs/ai_ingest.log`
 
 ## 📊 Monitoring
 

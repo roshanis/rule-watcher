@@ -1,4 +1,4 @@
-# Deploying CMS Rule Watcher to Vercel
+# Deploying Keywatch to Vercel
 
 ## Prerequisites
 

@@ -1,4 +1,4 @@
-// JavaScript for CMS Rule Watcher - HackerNews style interactions
+// JavaScript for Keywatch - HackerNews style interactions
 
 // Global state
 let searchVisible = false;
