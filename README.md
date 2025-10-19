@@ -17,7 +17,7 @@ A **HackerNews-style web application** for monitoring CMS (Centers for Medicare 
 - **📱 Responsive Design** - Works on desktop and mobile
 - **⚡ Live Search** - Real-time search with URL persistence
 - **🧠 AI Insights Feed** - Daily curated AI news for Optum & UHG teams
-- **📄 Paper of the Day** - Spotlight arXiv research relevant to healthcare & AI
+- **📄 Paper of the Day** - Spotlight the top-voted arXiv paper from Hacker News (with arXiv fallback)
 - **🔎 Unified Search** - BM25 + cosine similarity across govt docs, AI insights, and papers
 
 ## 🚀 Quick Start

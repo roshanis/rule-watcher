@@ -10,6 +10,7 @@ from typing import Dict, List
 from urllib.parse import urlencode
 
 import feedparser
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +19,11 @@ DEFAULT_CONFIG = {
     "search_queries": ["cat:cs.LG", "cat:cs.CL"],
     "keywords": ["transformer", "healthcare", "reinforcement learning", "medical", "graph", "privacy"],
     "max_results": 20,
+    "hn_min_points": 30,
 }
 
 ARXIV_API = "http://export.arxiv.org/api/query"
+HN_API = "https://hn.algolia.com/api/v1/search"
 
 
 def load_config() -> Dict:
@@ -74,6 +77,42 @@ def fetch_candidates(max_results: int) -> List[Dict]:
     return items
 
 
+def fetch_hn_top_paper(min_points: int) -> Dict:
+    params = {
+        "query": "arxiv",
+        "tags": "story",
+        "hitsPerPage": 50,
+        "numericFilters": f"points>{min_points}",
+    }
+    try:
+        resp = requests.get(HN_API, params=params, timeout=15)
+        resp.raise_for_status()
+        hits = resp.json().get("hits", [])
+    except Exception as exc:
+        logger.warning("Failed to fetch Hacker News papers: %s", exc)
+        return {}
+
+    filtered = [hit for hit in hits if hit.get("url") and "arxiv.org" in hit.get("url", "").lower()]
+    if not filtered:
+        return {}
+
+    filtered.sort(key=lambda hit: hit.get("points", 0), reverse=True)
+    best = filtered[0]
+
+    return {
+        "id": best.get("objectID"),
+        "title": best.get("title") or best.get("story_title") or "Untitled Hacker News submission",
+        "summary": best.get("story_text") or "",
+        "published": best.get("created_at", ""),
+        "authors": [best.get("author", "HN user")],
+        "link": best.get("url") or "",
+        "pdf_url": best.get("url") or "",
+        "categories": [],
+        "source": "hackernews",
+        "hn_points": best.get("points", 0),
+    }
+
+
 def _extract_pdf(entry) -> str:
     for link in getattr(entry, "links", []):
         if link.get("type") == "application/pdf":
@@ -123,7 +162,12 @@ def select_paper(candidates: List[Dict], keywords: List[str]) -> Dict:
 
 def get_paper_of_the_day() -> Dict:
     config = load_config()
+
+    hn_min_points = int(config.get("hn_min_points", DEFAULT_CONFIG["hn_min_points"]))
+    hn_paper = fetch_hn_top_paper(hn_min_points)
+    if hn_paper:
+        return hn_paper
+
     max_results = int(config.get("max_results", DEFAULT_CONFIG["max_results"]))
     candidates = fetch_candidates(max_results)
-    paper = select_paper(candidates, config.get("keywords", []))
-    return paper
+    return select_paper(candidates, config.get("keywords", []))

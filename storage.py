@@ -1,11 +1,22 @@
 """Application persistence using SQLite."""
 
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
 
-DB_PATH = Path("cache/app_state.db")
+
+def _resolve_db_path() -> Path:
+    if os.getenv("VERCEL"):
+        base = Path("/tmp/keywatch_cache")
+    else:
+        base = Path("cache")
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "app_state.db"
+
+
+DB_PATH = _resolve_db_path()
 RETENTION_DAYS = 45
 
 

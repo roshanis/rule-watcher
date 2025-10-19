@@ -1,5 +1,6 @@
 """Storage helpers for AI updates."""
 
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -11,7 +12,10 @@ MAX_ITEMS = 100
 
 
 def _db_path() -> Path:
-    cache_dir = Path("cache")
+    if os.getenv("VERCEL"):
+        cache_dir = Path("/tmp/keywatch_cache")
+    else:
+        cache_dir = Path("cache")
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / DB_FILENAME
 
