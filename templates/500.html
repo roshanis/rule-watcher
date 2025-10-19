@@ -3,21 +3,28 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Server Error - CMS Rule Watcher</title>
+    <title>Server Error - Keywatch</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
 </head>
 <body>
     <div class="container">
         <header class="header">
-            <h1><a href="/">CMS Rule Watcher</a></h1>
-            <p>Policy & Rulemaking Monitor</p>
+            <div class="logo">
+                <a href="/">Keywatch</a>
+            </div>
         </header>
-        
-        <main class="error-page">
-            <h2>500 - Server Error</h2>
-            <p>Something went wrong on our end. Please try again later.</p>
-            <p><a href="/">← Back to main page</a></p>
+
+        <main class="content">
+            <div class="no-documents">
+                <h1>500 – Server Error</h1>
+                <p>We hit a snag while processing your request. The team has been notified.</p>
+                <p><a href="/">Return to the homepage</a></p>
+            </div>
         </main>
+
+        <footer class="footer">
+            <p>Keywatch – stay informed on policy, AI, and research</p>
+        </footer>
     </div>
 </body>
-</html> 
+</html>

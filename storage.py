@@ -8,11 +8,13 @@ from typing import Dict, Optional
 
 
 def _resolve_db_path() -> Path:
-    if os.getenv("VERCEL"):
+    preferred = Path("cache")
+    try:
+        preferred.mkdir(parents=True, exist_ok=True)
+        base = preferred
+    except OSError:
         base = Path("/tmp/keywatch_cache")
-    else:
-        base = Path("cache")
-    base.mkdir(parents=True, exist_ok=True)
+        base.mkdir(parents=True, exist_ok=True)
     return base / "app_state.db"
 
 

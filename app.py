@@ -633,6 +633,13 @@ def paper_of_the_day():
     paper_context['time_ago'] = format_time_ago(paper_context['published'])
     return render_template('paper.html', paper=paper_context)
 
+
+@app.route('/favicon.ico')
+@app.route('/favicon.png')
+def favicon():
+    """Gracefully handle missing favicons in serverless environments."""
+    return ('', 204)
+
 @app.route('/health')
 def health_check():
     """Simple health check endpoint for debugging deployment."""

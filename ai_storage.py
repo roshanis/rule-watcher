@@ -12,11 +12,13 @@ MAX_ITEMS = 100
 
 
 def _db_path() -> Path:
-    if os.getenv("VERCEL"):
+    preferred = Path("cache")
+    try:
+        preferred.mkdir(parents=True, exist_ok=True)
+        cache_dir = preferred
+    except OSError:
         cache_dir = Path("/tmp/keywatch_cache")
-    else:
-        cache_dir = Path("cache")
-    cache_dir.mkdir(parents=True, exist_ok=True)
+        cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / DB_FILENAME
 
 
