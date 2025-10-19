@@ -20,6 +20,8 @@ from pathlib import Path
 
 import ai_storage
 import storage
+import paper_fetcher
+from utils import normalize_doc_id
 
 # Basic imports first
 try:
@@ -177,7 +179,7 @@ def get_vote_token() -> str:
     return token
 
 # Input validation patterns
-DOCUMENT_ID_PATTERN = re.compile(r'^[0-9]{4}-[0-9]{5}$|^[A-Za-z0-9\-]+$')  # Support both formats
+DOCUMENT_ID_PATTERN = re.compile(r'^[0-9]{4}-[0-9]{5}$|^[A-Za-z0-9_\-]+$')  # Support both formats
 QUERY_PATTERN = re.compile(r'^[a-zA-Z0-9\s\-_\.]+$')
 
 def validate_document_id(doc_id: str) -> bool:
@@ -197,6 +199,7 @@ def sanitize_input(text: str) -> str:
     if not text:
         return ""
     return bleach.clean(text, tags=[], attributes={}, strip=True)[:1000]  # Limit length
+
 
 def generate_csrf_token():
     """Generate CSRF token for forms."""
@@ -286,6 +289,48 @@ def fetch_suggested_searches():
     except Exception as e:
         app.logger.error(f"Suggested searches error: {e}")
         return []
+
+
+def collect_search_documents():
+    """Aggregate documents from multiple sources for search."""
+    documents = []
+
+    for doc in fetch_documents():
+        doc_id = normalize_doc_id(doc.get("id"))
+        documents.append({
+            "id": doc_id,
+            "title": doc.get("title", ""),
+            "summary": doc.get("summary", ""),
+            "url": doc.get("url", ""),
+            "published": doc.get("date", ""),
+            "source": "govt",
+        })
+
+    for item in ai_storage.get_recent_items():
+        doc_id = normalize_doc_id(item.get("external_id") or item.get("url"))
+        documents.append({
+            "id": doc_id,
+            "title": item.get("title", ""),
+            "summary": item.get("summary", ""),
+            "url": item.get("url", ""),
+            "published": item.get("published") or item.get("fetched_at"),
+            "source": "ai",
+        })
+
+    paper = paper_fetcher.get_paper_of_the_day()
+    if paper:
+        doc_id = normalize_doc_id(paper.get("id") or paper.get("link"))
+        documents.append({
+            "id": doc_id,
+            "title": paper.get("title", ""),
+            "summary": paper.get("summary", ""),
+            "url": paper.get("link", ""),
+            "published": paper.get("published", ""),
+            "source": "paper",
+        })
+
+    return [doc for doc in documents if doc["id"]]
+
 
 def format_time_ago(date_str):
     """Convert date string to 'X days ago' format."""
@@ -464,12 +509,44 @@ def api_documents():
             doc["comment_count"] = 0
     return jsonify(documents)
 
+@app.route('/search')
+@limiter.limit("20 per minute")
+def internal_search():
+    """Search across site content using BM25 and cosine similarity."""
+    query = (request.args.get('q') or '').strip()
+    results = []
+    vote_token = get_vote_token()
+
+    if query:
+        documents = collect_search_documents()
+        ranked = search_index.rank(query, documents)
+        for doc in ranked:
+            doc_id = doc.get('id')
+            if doc_id:
+                record = storage.get_vote_record(doc_id, vote_token)
+                doc['up_votes'] = record['up']
+                doc['down_votes'] = record['down']
+                doc['score'] = record['score']
+                doc['user_vote'] = record['user_vote']
+                doc['comment_count'] = storage.get_comment_count(doc_id)
+            else:
+                doc['up_votes'] = doc['down_votes'] = 0
+                doc['score'] = doc.get('score', 0)
+                doc['user_vote'] = None
+                doc['comment_count'] = 0
+            doc['time_ago'] = format_time_ago(doc.get('published', ''))
+            results.append(doc)
+
+    return render_template('search.html', query=query, results=results)
+
+
 @app.route('/searches')
-@limiter.limit("10 per minute")
-def suggested_searches():
-    """Page showing suggested search categories."""
-    searches = fetch_suggested_searches()
-    return render_template('searches.html', searches=searches)
+def legacy_search():
+    """Redirect legacy /searches route to /search"""
+    query = request.args.get('q')
+    if query:
+        return redirect(url_for('internal_search', q=query))
+    return redirect(url_for('internal_search'))
 
 
 @app.route('/ai')
@@ -478,9 +555,24 @@ def ai_updates():
     """Render latest AI-focused news items."""
     ai_storage.purge_expired()
     items = ai_storage.get_recent_items()
+    vote_token = get_vote_token()
     for item in items:
         stamp = item.get('published_at') or item.get('fetched_at')
         item['time_ago'] = format_time_ago(stamp)
+        doc_id = normalize_doc_id(item.get('external_id') or item.get('url'))
+        item['id'] = doc_id
+        if doc_id:
+            record = storage.get_vote_record(doc_id, vote_token)
+            item['up_votes'] = record['up']
+            item['down_votes'] = record['down']
+            item['score'] = record['score']
+            item['user_vote'] = record['user_vote']
+            item['comment_count'] = storage.get_comment_count(doc_id)
+        else:
+            item['up_votes'] = item['down_votes'] = 0
+            item['score'] = 0
+            item['user_vote'] = None
+            item['comment_count'] = 0
     return render_template('ai.html', items=items)
 
 
@@ -490,10 +582,56 @@ def api_ai_items():
     """Return AI updates as JSON."""
     ai_storage.purge_expired()
     items = ai_storage.get_recent_items()
+    vote_token = get_vote_token()
     for item in items:
         stamp = item.get('published_at') or item.get('fetched_at')
         item['time_ago'] = format_time_ago(stamp)
+        doc_id = normalize_doc_id(item.get('external_id') or item.get('url'))
+        item['id'] = doc_id
+        if doc_id:
+            record = storage.get_vote_record(doc_id, vote_token)
+            item['up_votes'] = record['up']
+            item['down_votes'] = record['down']
+            item['score'] = record['score']
+            item['user_vote'] = record['user_vote']
+            item['comment_count'] = storage.get_comment_count(doc_id)
+        else:
+            item['up_votes'] = item['down_votes'] = 0
+            item['score'] = 0
+            item['user_vote'] = None
+            item['comment_count'] = 0
     return jsonify(items)
+
+
+@app.route('/paper')
+@limiter.limit("10 per minute")
+def paper_of_the_day():
+    """Showcase a curated arXiv paper with voting and comments."""
+    paper = paper_fetcher.get_paper_of_the_day()
+    vote_token = get_vote_token()
+
+    if not paper:
+        return render_template('paper.html', paper=None)
+
+    paper_id = normalize_doc_id(paper.get('id') or paper.get('link') or paper.get('title'))
+    record = storage.get_vote_record(paper_id, vote_token)
+    paper_context = {
+        "id": paper_id,
+        "title": paper.get('title', 'Untitled arXiv paper'),
+        "summary": paper.get('summary', ''),
+        "published": paper.get('published', ''),
+        "authors": paper.get('authors', []),
+        "link": paper.get('link', ''),
+        "pdf_url": paper.get('pdf_url', ''),
+        "categories": [tag.get('term', '') for tag in paper.get('categories', [])],
+        "score": record['score'],
+        "up_votes": record['up'],
+        "down_votes": record['down'],
+        "user_vote": record['user_vote'],
+        "comment_count": storage.get_comment_count(paper_id),
+    }
+    paper_context['time_ago'] = format_time_ago(paper_context['published'])
+    return render_template('paper.html', paper=paper_context)
 
 @app.route('/health')
 def health_check():

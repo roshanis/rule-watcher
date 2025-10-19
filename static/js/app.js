@@ -41,29 +41,17 @@ function handleSearch(event) {
     if (event.key === 'Enter') {
         const query = event.target.value.trim();
         if (query) {
-            searchDocuments(query);
+            const url = `/search?q=${encodeURIComponent(query)}`;
+            window.location.href = url;
         }
     }
 }
 
 // Search documents via API
 async function searchDocuments(query) {
-    try {
-        const response = await fetch(`/api/documents?q=${encodeURIComponent(query)}`);
-        const documents = await response.json();
-        
-        // Update page with search results
-        updateDocumentList(documents);
-        
-        // Update URL without page reload
-        const url = new URL(window.location);
-        url.searchParams.set('q', query);
-        window.history.pushState({}, '', url);
-        
-    } catch (error) {
-        console.error('Search error:', error);
-        alert('Search failed. Please try again.');
-    }
+    // Legacy function kept for compatibility; redirect to new search page
+    const url = `/search?q=${encodeURIComponent(query)}`;
+    window.location.href = url;
 }
 
 // Update document list (for search results)

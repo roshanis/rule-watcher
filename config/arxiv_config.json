@@ -1,0 +1,15 @@
+{
+  "search_queries": [
+    "cat:cs.LG",
+    "cat:cs.CL"
+  ],
+  "keywords": [
+    "transformer",
+    "healthcare",
+    "reinforcement learning",
+    "medical",
+    "graph",
+    "privacy"
+  ],
+  "max_results": 20
+}

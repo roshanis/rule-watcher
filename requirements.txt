@@ -6,4 +6,7 @@ bleach==6.0.0
 feedparser==6.0.10
 rich==13.6.0
 python-dotenv==1.0.0
-Flask-Limiter==3.5.0 
+Flask-Limiter==3.5.0
+numpy==1.26.4
+rank-bm25==0.2.2
+scikit-learn==1.5.1

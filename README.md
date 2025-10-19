@@ -17,6 +17,8 @@ A **HackerNews-style web application** for monitoring CMS (Centers for Medicare 
 - **📱 Responsive Design** - Works on desktop and mobile
 - **⚡ Live Search** - Real-time search with URL persistence
 - **🧠 AI Insights Feed** - Daily curated AI news for Optum & UHG teams
+- **📄 Paper of the Day** - Spotlight arXiv research relevant to healthcare & AI
+- **🔎 Unified Search** - BM25 + cosine similarity across govt docs, AI insights, and papers
 
 ## 🚀 Quick Start
 
@@ -109,7 +111,7 @@ This application includes enterprise-grade security features:
 | `/api/documents` | GET | JSON API for documents | 20/min |
 | `/vote` | POST | Upvote a document | 10/min |
 | `/comment` | POST | Add comment to document | 5/min |
-| `/searches` | GET | Suggested search categories | 10/min |
+| `/search?q=term` | GET | Site-wide BM25 & cosine search | 20/min |
 | `/ai` | GET | Latest AI-focused articles | 20/min |
 | `/api/ai` | GET | JSON feed of AI articles | 20/min |
 
@@ -135,6 +137,7 @@ rule-watcher/
 ├── ai_ingest.py          # Daily AI news ingestion script
 ├── ai_fetchers.py        # External AI news sources
 ├── ai_storage.py         # Persistent storage for AI items
+├── paper_fetcher.py      # arXiv paper-of-the-day selection logic
 ├── storage.py            # SQLite persistence for votes and comments
 ├── requirements.txt      # Python dependencies
 ├── .env                  # Environment configuration
@@ -162,6 +165,15 @@ python watcher.py
 
 # Run the AI ingestion job (populates cache/ai_updates.db)
 python ai_ingest.py
+
+# Evaluate paper-of-the-day selection
+python - <<'PY'
+import paper_fetcher
+print(paper_fetcher.get_paper_of_the_day())
+PY
+
+# Run automated tests
+pytest
 
 # Test API endpoints
 curl -s "http://localhost:8080/api/documents" | jq '.[0].title'
@@ -249,6 +261,8 @@ FLASK_ENV=production                      # For production
 
 - AI insight articles: `cache/ai_updates.db`
 - Vote & comment state: `cache/app_state.db` (entries older than 45 days are purged automatically)
+- AI feed cache: `cache/ai_updates.db`
+- arXiv configuration: `config/arxiv_config.json`
 - Cron logs: `logs/ai_ingest.log`
 
 ## 📊 Monitoring

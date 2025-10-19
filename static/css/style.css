@@ -125,6 +125,12 @@ body {
     font-size: 8pt;
 }
 
+.paper-summary {
+    margin-top: 10px;
+    font-size: 9pt;
+    color: #333;
+}
+
 .item-content {
     flex: 1;
 }
